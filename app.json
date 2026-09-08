@@ -18,8 +18,10 @@
         "NSBluetoothAlwaysUsageDescription": "FaceDefense connects to your wearable over Bluetooth to detect hand-to-face behaviors.",
         "NSBluetoothPeripheralUsageDescription": "FaceDefense connects to your wearable over Bluetooth to detect hand-to-face behaviors.",
         "UIBackgroundModes": [
+          "bluetooth-central",
           "bluetooth-central"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

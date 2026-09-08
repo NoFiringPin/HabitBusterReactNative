@@ -11,7 +11,7 @@ import {
   BleScanner,
   BleTwitchDevice,
   ensureBlePermissions,
-  isWatchName,
+  isOurWatch,
 } from '../services/bleTwitchDevice';
 import { MockTwitchDevice } from '../services/mockTwitchDevice';
 import {
@@ -160,7 +160,7 @@ export class AppController {
       const device = await new Promise<Device | null>((resolve) => {
         const timeout = setTimeout(() => resolve(null), 13000);
         stopScan = scanner.startBroad((d) => {
-          if (isWatchName(d.name) || isWatchName(d.localName)) {
+          if (isOurWatch(d)) {
             clearTimeout(timeout);
             resolve(d);
           }

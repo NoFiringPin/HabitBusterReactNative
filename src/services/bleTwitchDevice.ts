@@ -68,20 +68,44 @@ export class BleScanner {
    *
    * Returns an unsubscribe that also stops the scan.
    */
-  start(onDevice: Listener<Device>, filterToService = true): Unsubscribe {
+  start(
+    onDevice: Listener<Device>,
+    filterToService = true,
+    onError?: Listener<string>,
+  ): Unsubscribe {
+    // Make sure we're not already scanning (leftover from another screen), or
+    // startDeviceScan can no-op / error on iOS.
+    this.manager.stopDeviceScan();
     this.manager.startDeviceScan(
       filterToService ? [UartProtocol.service] : null,
       { allowDuplicates: false },
       (error, device) => {
-        if (error) return;
+        if (error) {
+          onError?.(error.message);
+          return;
+        }
         if (device) onDevice(device);
       },
     );
     return () => this.manager.stopDeviceScan();
   }
 
-  startBroad(onDevice: Listener<Device>): Unsubscribe {
-    return this.start(onDevice, false);
+  startBroad(onDevice: Listener<Device>, onError?: Listener<string>): Unsubscribe {
+    return this.start(onDevice, false, onError);
+  }
+
+  /**
+   * Peripherals iOS/Android already consider connected that expose the UART
+   * service. A scan will NOT surface a device the OS thinks is still connected
+   * (a common state after a previous, not-cleanly-closed session), so we ask
+   * for these explicitly and fold them into the results.
+   */
+  async connectedWatches(): Promise<Device[]> {
+    try {
+      return await this.manager.connectedDevices([UartProtocol.service]);
+    } catch {
+      return [];
+    }
   }
 
   stop(): void {
@@ -93,6 +117,27 @@ export class BleScanner {
 export function isWatchName(name: string | null | undefined): boolean {
   if (!name) return false;
   return name.toLowerCase().startsWith(UartProtocol.deviceName.toLowerCase());
+}
+
+/** The advertised-service shape we care about (a subset of ble-plx's Device). */
+export interface ScannedLike {
+  name?: string | null;
+  localName?: string | null;
+  serviceUUIDs?: string[] | null;
+}
+
+/**
+ * Whether a scan result is our wearable — matched by name OR by the Nordic UART
+ * service UUID in its advertisement. The UUID match matters on iOS, where a
+ * peripheral can advertise the service without a readable name in the initial
+ * packet (which would otherwise make the watch invisible).
+ */
+export function isOurWatch(device: ScannedLike): boolean {
+  if (isWatchName(device.name) || isWatchName(device.localName)) return true;
+  const svcs = device.serviceUUIDs ?? [];
+  return svcs.some(
+    (u) => u.toLowerCase() === UartProtocol.service.toLowerCase(),
+  );
 }
 
 /**

@@ -13,6 +13,7 @@ import { AppCard, PrimaryButton } from '../components/ui';
 import {
   BleScanner,
   ensureBlePermissions,
+  isOurWatch,
 } from '../services/bleTwitchDevice';
 import { appController } from '../state/appController';
 import { AppColors } from '../theme';
@@ -52,10 +53,24 @@ export function ScanScreen() {
       setError(`${ready.reason} You can still use the simulator below.`);
       return;
     }
-    stopRef.current = scannerRef.current.startBroad((d) => {
-      if (!d.name && !d.localName) return; // only show named devices
-      setDevices((prev) => ({ ...prev, [d.id]: d }));
-    });
+    // Fold in any watch iOS already considers connected (a scan won't surface it).
+    const known = await scannerRef.current.connectedWatches();
+    if (known.length > 0) {
+      setDevices((prev) => {
+        const next = { ...prev };
+        for (const d of known) next[d.id] = d;
+        return next;
+      });
+    }
+    stopRef.current = scannerRef.current.startBroad(
+      (d) => {
+        // Show named devices, plus any device advertising our UART service even
+        // if it comes through unnamed (common for the watch on iOS).
+        if (!d.name && !d.localName && !isOurWatch(d)) return;
+        setDevices((prev) => ({ ...prev, [d.id]: d }));
+      },
+      (msg) => setError(`Scan error: ${msg}`),
+    );
   }
 
   async function connectTo(device: Device) {
@@ -86,9 +101,13 @@ export function ScanScreen() {
     );
   }
 
-  const sorted = Object.values(devices).sort(
-    (a, b) => (b.rssi ?? -999) - (a.rssi ?? -999),
-  );
+  const sorted = Object.values(devices).sort((a, b) => {
+    // Pin our watch to the top, then sort by signal strength.
+    const aw = isOurWatch(a) ? 1 : 0;
+    const bw = isOurWatch(b) ? 1 : 0;
+    if (aw !== bw) return bw - aw;
+    return (b.rssi ?? -999) - (a.rssi ?? -999);
+  });
 
   return (
     <ScrollView
@@ -123,20 +142,32 @@ export function ScanScreen() {
       {sorted.length === 0 ? (
         <Text style={[styles.sub, { textAlign: 'center', marginTop: 24 }]}>Scanning…</Text>
       ) : (
-        sorted.map((r) => (
-          <AppCard key={r.id} style={{ marginBottom: 10 }}>
-            <View style={styles.row}>
-              <Text style={{ fontSize: 22, marginRight: 12 }}>⌚</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.deviceName}>{r.name ?? r.localName}</Text>
-                <Text style={styles.sub}>signal {r.rssi ?? '?'} dBm</Text>
+        sorted.map((r) => {
+          const isWatch = isOurWatch(r);
+          return (
+            <AppCard
+              key={r.id}
+              style={{ marginBottom: 10 }}
+              borderColor={isWatch ? AppColors.green : AppColors.greenBorder}
+              borderWidth={isWatch ? 2 : 1.5}
+            >
+              <View style={styles.row}>
+                <Text style={{ fontSize: 22, marginRight: 12 }}>⌚</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.deviceName}>
+                    {r.name ?? r.localName ?? (isWatch ? 'FaceDefense watch' : 'Unnamed device')}
+                  </Text>
+                  <Text style={styles.sub}>
+                    {isWatch ? 'Your watch · ' : ''}signal {r.rssi ?? '?'} dBm
+                  </Text>
+                </View>
+                <View style={{ width: 110 }}>
+                  <PrimaryButton label="Connect" onPress={() => connectTo(r)} />
+                </View>
               </View>
-              <View style={{ width: 110 }}>
-                <PrimaryButton label="Connect" onPress={() => connectTo(r)} />
-              </View>
-            </View>
-          </AppCard>
-        ))
+            </AppCard>
+          );
+        })
       )}
       <View style={{ height: 32 }} />
     </ScrollView>

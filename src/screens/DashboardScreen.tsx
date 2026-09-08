@@ -33,7 +33,7 @@ export function DashboardScreen() {
         <View style={styles.logoBox}>
           <Text style={{ fontSize: 18 }}>🛡️</Text>
         </View>
-        <Text style={styles.appName}>FaceDefense</Text>
+        <Text style={styles.appName}>HabitBuster</Text>
         <View style={{ flex: 1 }} />
         <Pressable onPress={() => nav.navigate('DeviceHub')}>
           <StatusPill

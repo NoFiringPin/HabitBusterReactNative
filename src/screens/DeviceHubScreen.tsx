@@ -194,6 +194,11 @@ export function DeviceHubScreen() {
             onValueChange={(v) => void appController.setAlertsEnabled(v)}
           />
         </View>
+        <View style={{ height: 10 }} />
+        <OutlineButton
+          label="Test vibration"
+          onPress={() => appController.testAlert()}
+        />
       </AppCard>
       <View style={{ height: 32 }} />
     </ScrollView>

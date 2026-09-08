@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "FaceDefense",
+    "name": "HabitBuster",
     "slug": "facedefense",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -15,8 +15,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.facedefense.app",
       "infoPlist": {
-        "NSBluetoothAlwaysUsageDescription": "FaceDefense connects to your wearable over Bluetooth to detect hand-to-face behaviors.",
-        "NSBluetoothPeripheralUsageDescription": "FaceDefense connects to your wearable over Bluetooth to detect hand-to-face behaviors.",
+        "NSBluetoothAlwaysUsageDescription": "HabitBuster connects to your wearable over Bluetooth to detect hand-to-face behaviors.",
+        "NSBluetoothPeripheralUsageDescription": "HabitBuster connects to your wearable over Bluetooth to detect hand-to-face behaviors.",
         "UIBackgroundModes": [
           "bluetooth-central",
           "bluetooth-central"
@@ -46,7 +46,7 @@
           "modes": [
             "central"
           ],
-          "bluetoothAlwaysPermission": "FaceDefense connects to your wearable over Bluetooth to detect hand-to-face behaviors."
+          "bluetoothAlwaysPermission": "HabitBuster connects to your wearable over Bluetooth to detect hand-to-face behaviors."
         }
       ],
       "expo-asset"

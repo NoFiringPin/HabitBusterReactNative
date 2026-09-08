@@ -1,7 +1,7 @@
 # Watch firmware (CircuitPython, BLE)
 
 `code.py` here is the **BLE edition** of the gesture-watch firmware — the one the
-FaceDefense app connects to. It's a copy of
+HabitBuster app connects to. It's a copy of
 `App_for_hand/Assets/hardwareCode/code.py`, dropped in this repo so it's easy to
 find and flash while testing the app.
 
@@ -73,4 +73,4 @@ protocol over the Nordic UART Service. These must match the app's
 4. **Already connected elsewhere?** A BLE peripheral serves one central at a
    time. If it's still connected to another phone/Mac, it won't advertise.
 5. **Bluetooth permission.** First launch must be granted the Bluetooth prompt;
-   if denied, enable it in iOS Settings → FaceDefense.
+   if denied, enable it in iOS Settings → HabitBuster.

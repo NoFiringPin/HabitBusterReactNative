@@ -262,6 +262,26 @@ export class AppController {
     this.notify();
   }
 
+  /**
+   * Push a not-yet-saved profile and run it, so the calibration wizard can let
+   * the user test the behavior live before committing to save.
+   */
+  async startProfilePreview(p: BehaviorProfile): Promise<void> {
+    await this.device?.pushProfile(p);
+    await this.device?.setMode(DeviceMode.run);
+  }
+
+  /** End a live preview and return the device to calibration streaming. */
+  async endProfilePreview(): Promise<void> {
+    this.setSimulatedGesture(false);
+    await this.device?.setMode(DeviceMode.calibrate);
+  }
+
+  /** Fire a one-off test buzz so the user can confirm the phone vibrates. */
+  testAlert(): void {
+    this.alerts.test();
+  }
+
   // =========================================================================
   //  Behaviors
   // =========================================================================

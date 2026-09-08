@@ -48,7 +48,12 @@ export function CalibrationWizard() {
   const [progress, setProgress] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [result, setResult] = useState<CalibrationResult | null>(null);
-  const [live, setLive] = useState<{ motion: number; pitch: number }>({ motion: 0, pitch: 0 });
+  const [testing, setTesting] = useState(false);
+  const [live, setLive] = useState<{ motion: number; pitch: number; flagged: boolean }>({
+    motion: 0,
+    pitch: 0,
+    flagged: false,
+  });
 
   // Mutable refs so timer callbacks read current values.
   const elapsedRef = useRef(0);
@@ -61,7 +66,7 @@ export function CalibrationWizard() {
   useEffect(() => {
     void c.enterCalibration();
     liveSub.current = c.onSample((s: DeviceSample) =>
-      setLive({ motion: s.motion, pitch: s.pitch }),
+      setLive({ motion: s.motion, pitch: s.pitch, flagged: s.flagged }),
     );
     return () => {
       captureSub.current?.();
@@ -148,16 +153,39 @@ export function CalibrationWizard() {
     setStep('review');
   }
 
+  // Build a throwaway profile from the current result for a live pre-save test.
+  function previewProfileName() {
+    return name.trim() === '' ? 'My behavior' : name.trim();
+  }
+
+  async function startTest() {
+    if (result == null) return;
+    const p = resultToProfile(result, { id: 'preview', name: previewProfileName(), emoji });
+    await c.startProfilePreview(p);
+    setTesting(true);
+  }
+
+  async function stopTest() {
+    await c.endProfilePreview();
+    setTesting(false);
+  }
+
   async function save() {
     if (result == null) return;
-    const finalName = name.trim() === '' ? 'My behavior' : name.trim();
+    if (testing) await stopTest();
     const profile = resultToProfile(result, {
       id: Date.now().toString() + Math.floor(Math.random() * 1000),
-      name: finalName,
+      name: previewProfileName(),
       emoji,
     });
     await c.addProfile(profile);
     nav.goBack();
+  }
+
+  async function redo() {
+    if (testing) await stopTest();
+    setProgress(0);
+    setStep('gesture');
   }
 
   const stepIndex = STEPS.indexOf(step);
@@ -272,9 +300,65 @@ export function CalibrationWizard() {
               }
             />
           </AppCard>
+          {/* Live pre-save test */}
+          {testing ? (
+            <AppCard
+              style={{ marginTop: 14 }}
+              borderColor={live.flagged ? AppColors.red : AppColors.green}
+              borderWidth={2}
+              color={live.flagged ? '#fff2f6' : '#f0fdf6'}
+            >
+              <View style={{ alignItems: 'center' }}>
+                <View
+                  style={[
+                    styles.testCircle,
+                    {
+                      borderColor: live.flagged ? AppColors.red : AppColors.green,
+                      backgroundColor: (live.flagged ? AppColors.red : AppColors.green) + '1f',
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: 34 }}>{live.flagged ? '⚠️' : emoji}</Text>
+                </View>
+                <Text
+                  style={[
+                    styles.testStatus,
+                    { color: live.flagged ? AppColors.red : AppColors.green },
+                  ]}
+                >
+                  {live.flagged ? 'Caught it!' : 'All calm'}
+                </Text>
+                <Text style={styles.sub}>
+                  live · motion {live.motion.toFixed(2)}  pitch {live.pitch.toFixed(0)}°
+                </Text>
+              </View>
+              {c.isSimulated && (
+                <Pressable
+                  onPressIn={() => c.setSimulatedGesture(true)}
+                  onPressOut={() => c.setSimulatedGesture(false)}
+                  style={[styles.holdBtn, { marginTop: 14, paddingVertical: 14, backgroundColor: '#ffe1e9' }]}
+                >
+                  <Text style={[styles.holdBtnText, { color: AppColors.red, fontSize: 13 }]}>
+                    Simulator: press & HOLD to fake the behavior
+                  </Text>
+                </Pressable>
+              )}
+              <View style={{ height: 12 }} />
+              <OutlineButton label="Stop test" color={AppColors.sub} onPress={stopTest} />
+            </AppCard>
+          ) : (
+            <View style={{ marginTop: 14 }}>
+              <OutlineButton label="▶  Try it live before saving" onPress={startTest} />
+              <Text style={[styles.sub, { textAlign: 'center', marginTop: 6 }]}>
+                Runs this profile on the {c.isSimulated ? 'simulator' : 'watch'} so you can
+                check it before saving.
+              </Text>
+            </View>
+          )}
+
           <View style={[styles.row, { marginTop: 16 }]}>
             <View style={{ flex: 1 }}>
-              <OutlineButton label="Redo" onPress={() => { setProgress(0); setStep('gesture'); }} />
+              <OutlineButton label="Redo" onPress={redo} />
             </View>
             <View style={{ width: 12 }} />
             <View style={{ flex: 2 }}>
@@ -436,4 +520,9 @@ const styles = StyleSheet.create({
   reviewRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6 },
   reviewLabel: { fontSize: 13, fontWeight: '700', color: AppColors.ink },
   reviewValue: { fontSize: 14, fontWeight: '800', color: AppColors.green },
+  testCircle: {
+    width: 96, height: 96, borderRadius: 48, borderWidth: 5,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
+  testStatus: { fontSize: 17, fontWeight: '800', marginBottom: 2 },
 });

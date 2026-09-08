@@ -34,6 +34,10 @@ export function bleManager(): BleManager {
   return sharedManager;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function toBase64(bytes: Uint8Array): string {
   return base64.fromByteArray(bytes);
 }
@@ -203,10 +207,36 @@ export class BleTwitchDevice implements TwitchDevice {
       () => this.setConnection(DeviceConnection.disconnected),
     );
 
-    this.device = await this.device.connect({ timeout: 15000 });
-    await this.device.discoverAllServicesAndCharacteristics();
-    await this.discover();
-    this.setConnection(DeviceConnection.connected);
+    // BLE connect + service discovery is flaky on the first try (iOS timeouts,
+    // Android GATT 133). Retry a few times with a clean cancel between attempts
+    // so the user doesn't have to tap "connect" repeatedly.
+    const maxAttempts = 3;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        this.device = await this.device.connect({ timeout: 12000 });
+        await this.device.discoverAllServicesAndCharacteristics();
+        await this.discover();
+        this.setConnection(DeviceConnection.connected);
+        return;
+      } catch (e) {
+        lastError = e;
+        // Tear down the half-open link before retrying, or the next attempt
+        // inherits the broken state.
+        try {
+          this.txSub?.remove();
+          this.txSub = null;
+          await this.device.cancelConnection();
+        } catch {
+          // already gone
+        }
+        if (attempt < maxAttempts) await delay(500 * attempt);
+      }
+    }
+    this.setConnection(DeviceConnection.disconnected);
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(String(lastError));
   }
 
   private async discover(): Promise<void> {

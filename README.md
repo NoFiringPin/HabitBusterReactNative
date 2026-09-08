@@ -1,4 +1,4 @@
-# FaceDefense — React Native (Expo)
+# HabitBuster — React Native (Expo)
 
 A React Native port of the Flutter `App_for_hand` app. It pairs with the
 **FaceDefense gesture watch** (Adafruit QT Py ESP32‑S3 running the CircuitPython

@@ -98,7 +98,7 @@ export function ScanScreen() {
           `No devices found. Confirm the watch says “Advertising as '${UartProtocol.deviceName}'”, then scan again.`,
         );
       }
-    }, 15000);
+    }, 8000);
   }
 
   async function connectTo(device: Device) {

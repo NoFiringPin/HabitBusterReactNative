@@ -20,6 +20,7 @@ import {
   isEvent,
   isSample,
   type DeviceSample,
+  type DeviceConnectOptions,
   type Listener,
   type TwitchDevice,
   type TwitchEvent,
@@ -38,6 +39,26 @@ export function bleManager(): BleManager {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    operation.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -77,7 +98,11 @@ export class BleScanner {
    * scanning while it reports Unknown/Resetting is a common first-launch race.
    */
   async isReady(timeoutMs = 10000): Promise<{ ok: boolean; reason?: string }> {
-    const current = await this.manager.state();
+    const current = await withTimeout(
+      this.manager.state(),
+      2000,
+      'The phone Bluetooth service did not respond.',
+    );
     const terminal = readinessForState(current);
     if (terminal != null) return terminal;
 
@@ -157,7 +182,11 @@ export class BleScanner {
    */
   async connectedWatches(): Promise<Device[]> {
     try {
-      return await this.manager.connectedDevices([UartProtocol.service]);
+      return await withTimeout(
+        this.manager.connectedDevices([UartProtocol.service]),
+        1500,
+        'Checking existing Bluetooth connections timed out.',
+      );
     } catch {
       return [];
     }
@@ -236,6 +265,7 @@ export class BleTwitchDevice implements TwitchDevice {
 
   private _connection = DeviceConnection.disconnected;
   private connectInProgress = false;
+  private disconnectPromise: Promise<void> | null = null;
   private rxBuffer = '';
   private handshakeResolve: (() => void) | null = null;
   private handshakeReject: ((error: Error) => void) | null = null;
@@ -269,11 +299,21 @@ export class BleTwitchDevice implements TwitchDevice {
     this.connectionEmitter.emit(c);
   }
 
-  async connect(): Promise<void> {
+  async connect(options: DeviceConnectOptions = {}): Promise<void> {
+    // If the user tapped reconnect immediately after disconnect, wait only for
+    // the bounded native cleanup rather than racing it with a new connection.
+    if (this.disconnectPromise != null) await this.disconnectPromise;
     this.connectInProgress = true;
     this.setConnection(DeviceConnection.connecting);
 
-    const ready = await new BleScanner().isReady();
+    let ready: { ok: boolean; reason?: string };
+    try {
+      ready = await new BleScanner().isReady();
+    } catch (error) {
+      this.connectInProgress = false;
+      this.setConnection(DeviceConnection.disconnected);
+      throw error;
+    }
     if (!ready.ok) {
       this.connectInProgress = false;
       this.setConnection(DeviceConnection.disconnected);
@@ -282,7 +322,7 @@ export class BleTwitchDevice implements TwitchDevice {
 
     // A scan and a GATT connection should not compete for the same radio.
     this.manager.stopDeviceScan();
-    await delay(200);
+    await delay(100);
 
     // Watch for the peer dropping the link.
     this.disconnectSub?.remove();
@@ -290,6 +330,9 @@ export class BleTwitchDevice implements TwitchDevice {
       this.device.id,
       () => {
         if (!this.connectInProgress) {
+          this.txSub?.remove();
+          this.txSub = null;
+          this.rxUuid = null;
           this.setConnection(DeviceConnection.disconnected);
         }
       },
@@ -298,26 +341,28 @@ export class BleTwitchDevice implements TwitchDevice {
     // BLE connect + service discovery is flaky on the first try (iOS timeouts,
     // Android GATT 133). Retry a few times with a clean cancel between attempts
     // so the user doesn't have to tap "connect" repeatedly.
-    const maxAttempts = 3;
+    const maxAttempts = options.maxAttempts ?? 3;
+    const connectionTimeout = options.timeoutMs ?? 8000;
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         // Clear a link the OS retained from an interrupted previous session.
-        if (await this.manager.isDeviceConnected(this.device.id)) {
-          try {
-            await this.manager.cancelDeviceConnection(this.device.id);
-            await delay(350);
-          } catch {
-            // It may have disappeared between the status check and cancel.
-          }
+        if (await this.isNativeConnected()) {
+          await this.cancelNativeConnection();
+          await delay(200);
         }
 
         this.device = await this.manager.connectToDevice(this.device.id, {
-          timeout: 15000,
-          // Android can cache a stale GATT table across firmware/app rebuilds.
-          refreshGatt: 'OnConnected',
+          timeout: connectionTimeout,
+          // Keep the fast path fast. If it fails, clear Android's cached GATT
+          // table on the retry, where the extra second is actually worthwhile.
+          refreshGatt: attempt > 1 ? 'OnConnected' : undefined,
         });
-        await this.device.discoverAllServicesAndCharacteristics();
+        await withTimeout(
+          this.device.discoverAllServicesAndCharacteristics(),
+          6000,
+          'Bluetooth service discovery timed out.',
+        );
         await this.discover();
         await this.verifyUart();
         this.connectInProgress = false;
@@ -327,17 +372,13 @@ export class BleTwitchDevice implements TwitchDevice {
         lastError = e;
         // Tear down the half-open link before retrying, or the next attempt
         // inherits the broken state.
-        try {
-          this.txSub?.remove();
-          this.txSub = null;
-          this.rxUuid = null;
-          this.handshakeResolve = null;
-          this.handshakeReject = null;
-          await this.manager.cancelDeviceConnection(this.device.id);
-        } catch {
-          // already gone
-        }
-        if (attempt < maxAttempts) await delay(750 * attempt);
+        this.txSub?.remove();
+        this.txSub = null;
+        this.rxUuid = null;
+        this.handshakeResolve = null;
+        this.handshakeReject = null;
+        await this.cancelNativeConnection();
+        if (attempt < maxAttempts) await delay(300 * attempt);
       }
     }
     this.connectInProgress = false;
@@ -348,14 +389,23 @@ export class BleTwitchDevice implements TwitchDevice {
   }
 
   private async discover(): Promise<void> {
-    const services = await this.device.services();
+    this.rxBuffer = '';
+    const services = await withTimeout(
+      this.device.services(),
+      3000,
+      'Reading Bluetooth services timed out.',
+    );
     const svc = services.find(
       (s) => s.uuid.toLowerCase() === UartProtocol.service.toLowerCase(),
     );
     if (!svc) {
       throw new Error('This device does not expose the UART service.');
     }
-    const chars = await svc.characteristics();
+    const chars = await withTimeout(
+      svc.characteristics(),
+      3000,
+      'Reading Bluetooth characteristics timed out.',
+    );
     let tx: Characteristic | undefined;
     let rx: Characteristic | undefined;
     for (const c of chars) {
@@ -402,7 +452,7 @@ export class BleTwitchDevice implements TwitchDevice {
       this.handshakeReject = reject;
       timer = setTimeout(
         () => reject(new Error('The watch connected, but its data channel did not respond.')),
-        5000,
+        3000,
       );
     });
 
@@ -410,8 +460,8 @@ export class BleTwitchDevice implements TwitchDevice {
       const pingLoop = async () => {
         // Notification subscription setup is asynchronous on both platforms.
         // Repeating PING covers one sent just before notifications became live.
-        for (let attempt = 0; attempt < 3 && !confirmed; attempt++) {
-          await delay(attempt === 0 ? 250 : 650);
+        for (let attempt = 0; attempt < 2 && !confirmed; attempt++) {
+          await delay(attempt === 0 ? 150 : 450);
           if (!confirmed) await this.write(UartProtocol.ping);
         }
       };
@@ -450,16 +500,24 @@ export class BleTwitchDevice implements TwitchDevice {
       const end = Math.min(i + chunk, bytes.length);
       const payload = toBase64(bytes.slice(i, end));
       if (this.rxSupportsWriteWithoutResponse) {
-        await this.device.writeCharacteristicWithoutResponseForService(
-          UartProtocol.service,
-          this.rxUuid,
-          payload,
+        await withTimeout(
+          this.device.writeCharacteristicWithoutResponseForService(
+            UartProtocol.service,
+            this.rxUuid,
+            payload,
+          ),
+          3000,
+          'Writing to the watch timed out.',
         );
       } else {
-        await this.device.writeCharacteristicWithResponseForService(
-          UartProtocol.service,
-          this.rxUuid,
-          payload,
+        await withTimeout(
+          this.device.writeCharacteristicWithResponseForService(
+            UartProtocol.service,
+            this.rxUuid,
+            payload,
+          ),
+          3000,
+          'Writing to the watch timed out.',
         );
       }
     }
@@ -477,19 +535,49 @@ export class BleTwitchDevice implements TwitchDevice {
     return this.write(UartProtocol.alertCommand(enabled));
   }
 
+  private async cancelNativeConnection(timeoutMs = 1500): Promise<void> {
+    try {
+      await withTimeout(
+        this.manager.cancelDeviceConnection(this.device.id),
+        timeoutMs,
+        'Bluetooth disconnect timed out.',
+      );
+    } catch {
+      // The peer may already be gone. Cleanup must never pin the UI.
+    }
+  }
+
+  private async isNativeConnected(): Promise<boolean> {
+    try {
+      return await withTimeout(
+        this.manager.isDeviceConnected(this.device.id),
+        1500,
+        'Checking the Bluetooth connection timed out.',
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async disconnect(): Promise<void> {
+    if (this.disconnectPromise != null) return this.disconnectPromise;
     this.connectInProgress = false;
     this.txSub?.remove();
     this.txSub = null;
+    this.disconnectSub?.remove();
+    this.disconnectSub = null;
     this.rxUuid = null;
     this.handshakeResolve = null;
     this.handshakeReject = null;
-    try {
-      await this.device.cancelConnection();
-    } catch {
-      // peer may already be gone
-    }
+    // Update the UI immediately; native cancellation continues for at most 1.5s.
     this.setConnection(DeviceConnection.disconnected);
+    const cleanup = this.cancelNativeConnection();
+    this.disconnectPromise = cleanup;
+    try {
+      await cleanup;
+    } finally {
+      if (this.disconnectPromise === cleanup) this.disconnectPromise = null;
+    }
   }
 
   dispose(): void {

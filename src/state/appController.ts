@@ -18,6 +18,7 @@ import {
   DeviceConnection,
   DeviceMode,
   UartProtocol,
+  type DeviceConnectOptions,
   type DeviceSample,
   type TwitchDevice,
   type TwitchEvent,
@@ -154,6 +155,23 @@ export class AppController {
         return ready.reason ?? 'Bluetooth is not ready.';
       }
 
+      // Reuse the last watch identifier after an intentional disconnect. This
+      // avoids waiting for another advertisement before every reconnect.
+      if (this.device != null) {
+        this.connectionStatus = `Reconnecting to ${this.device.name}…`;
+        this.notify();
+        try {
+          await this.connect({ maxAttempts: 1, timeoutMs: 5000 });
+          this.connectionStatus = 'Connected and verified';
+          this.notify();
+          return null;
+        } catch {
+          // Its address may have changed after a board reset. Drop the stale
+          // object and fall through to a short fresh scan.
+          await this.detach();
+        }
+      }
+
       this.connectionStatus = 'Checking for an existing watch link…';
       this.notify();
       const known = (await scanner.connectedWatches()).filter(isOurWatch);
@@ -175,11 +193,12 @@ export class AppController {
             if (error) reject(new Error(error));
             else resolve(result);
           };
-          const timeout = setTimeout(() => finish(null), 15000);
-          stopScan = scanner.startBroad(
+          const timeout = setTimeout(() => finish(null), 8000);
+          stopScan = scanner.start(
             (candidate) => {
               if (isOurWatch(candidate)) finish(candidate);
             },
+            true,
             (error) => finish(null, `Bluetooth scan failed: ${error}`),
           );
         });
@@ -192,7 +211,6 @@ export class AppController {
           `Make sure it's powered on and nearby.`
         );
       }
-      this.searching = false;
       await this.useBleDevice(device);
       this.connectionStatus = 'Connecting and verifying data…';
       this.notify();
@@ -243,15 +261,19 @@ export class AppController {
     this.connectionStatus = 'Ready to connect';
   }
 
-  async connect(): Promise<void> {
-    await this.device?.connect();
+  async connect(options?: DeviceConnectOptions): Promise<void> {
+    await this.device?.connect(options);
     // Re-push the active profile so the device is ready to run standalone.
     const active = this.activeProfile;
     if (active != null) await this.device?.pushProfile(active);
   }
 
   async disconnect(): Promise<void> {
+    this.connectionStatus = 'Disconnecting…';
+    this.notify();
     await this.device?.disconnect();
+    this.connectionStatus = 'Ready to reconnect';
+    this.notify();
   }
 
   /** The live sample subscription helper for screens that need a stream. */

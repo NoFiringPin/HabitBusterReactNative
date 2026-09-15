@@ -57,6 +57,13 @@ export interface TwitchEvent {
 export type Listener<T> = (value: T) => void;
 export type Unsubscribe = () => void;
 
+export interface DeviceConnectOptions {
+  /** Number of clean GATT attempts before reporting failure. */
+  maxAttempts?: number;
+  /** Native timeout for each individual attempt. */
+  timeoutMs?: number;
+}
+
 /**
  * Abstraction over the connected wearable.
  *
@@ -75,7 +82,7 @@ export interface TwitchDevice {
   /** Subscribe to confirmed detections (`EVT`). */
   onEvent(listener: Listener<TwitchEvent>): Unsubscribe;
 
-  connect(): Promise<void>;
+  connect(options?: DeviceConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
 
   /** Switch the device between idle / calibrate / run. */

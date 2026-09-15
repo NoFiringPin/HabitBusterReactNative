@@ -79,8 +79,14 @@ export function DeviceHubScreen() {
         ) : (
           <>
             <PrimaryButton
-              label={c.searching ? 'Searching…' : 'Find my watch'}
-              loading={c.searching}
+              label={
+                c.connection === DeviceConnection.connecting
+                  ? 'Connecting…'
+                  : c.searching
+                    ? 'Searching…'
+                    : 'Find my watch'
+              }
+              loading={connecting}
               disabled={connecting}
               onPress={findWatch}
             />

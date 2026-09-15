@@ -8,7 +8,6 @@
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "image": "macos-sequoia-15.6-xcode-26.0",
         "simulator": false
       },
       "android": {
@@ -18,7 +17,6 @@
     "preview": {
       "distribution": "internal",
       "ios": {
-        "image": "macos-sequoia-15.6-xcode-26.0",
         "simulator": false
       },
       "android": {
@@ -26,10 +24,7 @@
       }
     },
     "production": {
-      "autoIncrement": true,
-      "ios": {
-        "image": "macos-sequoia-15.6-xcode-26.0"
-      }
+      "autoIncrement": true
     }
   },
   "submit": {

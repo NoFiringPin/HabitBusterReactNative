@@ -1,10 +1,10 @@
 import { useNavigation } from '@react-navigation/native';
 import React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { AppCard, OutlineButton, PrimaryButton, StatusPill } from '../components/ui';
+import { AppCard, OutlineButton, PrimaryButton, ScreenScrollView, StatusPill } from '../components/ui';
 import type { BehaviorProfile } from '../models/behaviorProfile';
-import { DeviceConnection, UartProtocol } from '../services/twitchDevice';
+import { DeviceConnection } from '../services/twitchDevice';
 import { appController } from '../state/appController';
 import { useAppController } from '../state/useAppController';
 import { AppColors } from '../theme';
@@ -30,14 +30,9 @@ export function DeviceHubScreen() {
     ]);
   }
 
-  async function useSimulator() {
-    await appController.useSimulator();
-    await appController.connect();
-  }
-
   function addBehavior() {
     if (!c.isConnected) {
-      Alert.alert('Connect first', 'Connect a device (or the simulator) first.');
+      Alert.alert('Connect first', 'Connect your wearable first.');
       return;
     }
     nav.navigate('Calibrate');
@@ -57,10 +52,7 @@ export function DeviceHubScreen() {
   const canMonitor = c.isConnected && c.activeProfile != null;
 
   return (
-    <ScrollView
-      style={{ backgroundColor: AppColors.bg }}
-      contentContainerStyle={styles.container}
-    >
+    <ScreenScrollView>
       {/* Connection card */}
       <AppCard borderColor={connected ? AppColors.greenBorder : AppColors.blueBorder}>
         <View style={styles.row}>
@@ -70,14 +62,10 @@ export function DeviceHubScreen() {
               {connected ? c.deviceName : 'No wearable connected'}
             </Text>
             <Text style={styles.sub}>
-              {c.searching
-                ? `Searching for your ${UartProtocol.deviceName} watch…`
-                : connecting
-                  ? 'Connecting…'
+              {connecting
+                ? c.connectionStatus
                   : connected
-                    ? c.isSimulated
-                      ? 'Simulated device'
-                      : 'Connected over Bluetooth'
+                    ? 'Connected over Bluetooth'
                     : 'Connect to calibrate and detect'}
             </Text>
           </View>
@@ -97,15 +85,11 @@ export function DeviceHubScreen() {
               onPress={findWatch}
             />
             <View style={{ height: 8 }} />
-            <View style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <OutlineButton label="Use simulator" onPress={useSimulator} disabled={connecting} />
-              </View>
-              <View style={{ width: 10 }} />
-              <View style={{ flex: 1 }}>
-                <OutlineButton label="Choose manually" onPress={() => nav.navigate('Scan')} disabled={connecting} />
-              </View>
-            </View>
+            <OutlineButton
+              label="Choose a nearby device manually"
+              onPress={() => nav.navigate('Scan')}
+              disabled={connecting}
+            />
           </>
         )}
       </AppCard>
@@ -200,17 +184,15 @@ export function DeviceHubScreen() {
           onPress={() => appController.testAlert()}
         />
       </AppCard>
-      <View style={{ height: 32 }} />
-    </ScrollView>
+    </ScreenScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16 },
   row: { flexDirection: 'row', alignItems: 'center' },
   bigIcon: { fontSize: 26, marginRight: 12 },
   title: { fontSize: 15, fontWeight: '800', color: AppColors.ink },
-  sub: { fontSize: 11, color: AppColors.sub },
+  sub: { fontSize: 11, lineHeight: 16, color: AppColors.sub, flexShrink: 1 },
   sectionTitle: { fontSize: 15, fontWeight: '800', color: AppColors.ink },
   addLink: { fontSize: 14, fontWeight: '700', color: AppColors.green },
   useLink: { fontSize: 14, fontWeight: '700', color: AppColors.blue },

@@ -3,14 +3,13 @@ import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 
-import { AppCard, OutlineButton, PrimaryButton } from '../components/ui';
+import { AppCard, OutlineButton, PrimaryButton, ScreenScrollView } from '../components/ui';
 import {
   CalibrationSession,
   resultToProfile,
@@ -73,7 +72,6 @@ export function CalibrationWizard() {
       liveSub.current?.();
       if (restTimer.current) clearInterval(restTimer.current);
       if (gestureTimer.current) clearInterval(gestureTimer.current);
-      c.setSimulatedGesture(false);
       if (!c.monitoring) void c.stopMonitoring();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -115,7 +113,6 @@ export function CalibrationWizard() {
     setProgress(0);
     setElapsed(0);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    c.setSimulatedGesture(true);
     captureSub.current?.();
     captureSub.current = c.onSample((s) => sessionRef.current.addGesture(s));
     gestureTimer.current = setInterval(() => {
@@ -128,7 +125,6 @@ export function CalibrationWizard() {
 
   function gestureUp() {
     if (!capturing) return;
-    c.setSimulatedGesture(false);
     if (elapsedRef.current >= GESTURE_MIN_MS && sessionRef.current.gestureCount >= 10) {
       finishGesture();
       return;
@@ -144,7 +140,6 @@ export function CalibrationWizard() {
   function finishGesture() {
     if (gestureTimer.current) clearInterval(gestureTimer.current);
     captureSub.current?.();
-    c.setSimulatedGesture(false);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCapturing(false);
     setProgress(0);
@@ -191,7 +186,7 @@ export function CalibrationWizard() {
   const stepIndex = STEPS.indexOf(step);
 
   return (
-    <ScrollView style={{ backgroundColor: AppColors.bg }} contentContainerStyle={styles.container}>
+    <ScreenScrollView>
       {/* Step dots */}
       <View style={styles.dots}>
         {STEPS.map((s, i) => (
@@ -239,11 +234,7 @@ export function CalibrationWizard() {
         <View>
           <StepHeader
             title="2 · Do the behavior"
-            body={
-              c.isSimulated
-                ? 'No hardware connected, so press and HOLD the button below to simulate performing the behavior. Keep holding until the ring fills.'
-                : 'Press and HOLD the button while you actually perform the behavior with the watch on. Keep holding until the ring fills (~3 s).'
-            }
+            body="Press and HOLD the button while you perform the behavior with the watch on. Keep holding until the ring fills (~3 s)."
           />
           <CaptureVisual
             emoji="🖐"
@@ -332,17 +323,6 @@ export function CalibrationWizard() {
                   live · motion {live.motion.toFixed(2)}  pitch {live.pitch.toFixed(0)}°
                 </Text>
               </View>
-              {c.isSimulated && (
-                <Pressable
-                  onPressIn={() => c.setSimulatedGesture(true)}
-                  onPressOut={() => c.setSimulatedGesture(false)}
-                  style={[styles.holdBtn, { marginTop: 14, paddingVertical: 14, backgroundColor: '#ffe1e9' }]}
-                >
-                  <Text style={[styles.holdBtnText, { color: AppColors.red, fontSize: 13 }]}>
-                    Simulator: press & HOLD to fake the behavior
-                  </Text>
-                </Pressable>
-              )}
               <View style={{ height: 12 }} />
               <OutlineButton label="Stop test" color={AppColors.sub} onPress={stopTest} />
             </AppCard>
@@ -350,8 +330,7 @@ export function CalibrationWizard() {
             <View style={{ marginTop: 14 }}>
               <OutlineButton label="▶  Try it live before saving" onPress={startTest} />
               <Text style={[styles.sub, { textAlign: 'center', marginTop: 6 }]}>
-                Runs this profile on the {c.isSimulated ? 'simulator' : 'watch'} so you can
-                check it before saving.
+                Runs this profile on the watch so you can check it before saving.
               </Text>
             </View>
           )}
@@ -367,8 +346,7 @@ export function CalibrationWizard() {
           </View>
         </View>
       )}
-      <View style={{ height: 32 }} />
-    </ScrollView>
+    </ScreenScrollView>
   );
 }
 
@@ -485,7 +463,6 @@ function ReviewRow(props: { label: string; value: string; detail: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16 },
   row: { flexDirection: 'row', alignItems: 'center' },
   dots: { flexDirection: 'row', marginBottom: 18 },
   dot: { flex: 1, height: 6, borderRadius: 4, marginHorizontal: 3 },
@@ -519,7 +496,14 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: '#eef1f4', marginVertical: 14 },
   reviewRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6 },
   reviewLabel: { fontSize: 13, fontWeight: '700', color: AppColors.ink },
-  reviewValue: { fontSize: 14, fontWeight: '800', color: AppColors.green },
+  reviewValue: {
+    maxWidth: '42%',
+    marginLeft: 12,
+    fontSize: 14,
+    fontWeight: '800',
+    color: AppColors.green,
+    textAlign: 'right',
+  },
   testCircle: {
     width: 96, height: 96, borderRadius: 48, borderWidth: 5,
     alignItems: 'center', justifyContent: 'center', marginBottom: 8,

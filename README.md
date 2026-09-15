@@ -2,11 +2,11 @@
 
 A React Native port of the Flutter `App_for_hand` app. It pairs with the
 **FaceDefense gesture watch** (Adafruit QT Py ESP32‑S3 running the CircuitPython
-firmware in `Assets/hardwareCode/code.py`) over **Bluetooth LE / Nordic UART
+firmware in `firmware/code.py`) over **Bluetooth LE / Nordic UART
 Service**, calibrates a behavior, and monitors for it live.
 
-This is the **functional core**: BLE bridge + simulator, the
-behavior → calibrate → monitor loop, and a live dashboard. The static
+This is the **functional core**: the BLE bridge, behavior → calibrate → monitor
+loop, and a live dashboard. The static
 History / Achievements / Information / Settings / Profile screens from the
 Flutter `main.dart` are intentionally deferred to a follow-up.
 
@@ -26,13 +26,12 @@ and [`src/services/bleTwitchDevice.ts`](src/services/bleTwitchDevice.ts).
 | App → watch | `MODE IDLE\|CALIB\|RUN`, `CFG gate=… mth=… pmin=… pmax=…`, `ALERT 0\|1`, `PING` |
 | Watch → app | `HELLO fw=… mode=…`, `DAT p=… r=… m=… f=…`, `EVT n=… p=… m=…`, `PONG` |
 
-The calibration math (`src/services/calibration.ts`) and the on-device debounce
-mirror (`src/services/mockTwitchDevice.ts`) are ported 1:1 from the Dart, so the
-`CFG` profile the app pushes produces identical detection on the watch.
+The calibration math (`src/services/calibration.ts`) produces the `CFG` profile
+that the app pushes to the watch for on-device detection.
 
 ## Prerequisites
 
-- Node 20.19.4+ and npm (required by Expo SDK 54 / React Native 0.81)
+- Node 22.13+ and npm (required by Expo SDK 57 / React Native 0.86)
 - A physical iOS or Android device with Bluetooth (BLE is **not** available in
   simulators/emulators, and this app needs a **custom dev client** — plain Expo
   Go cannot load the native BLE module).
@@ -57,23 +56,33 @@ Subsequent JS-only changes just need the bundler:
 npm start                    # expo start --dev-client
 ```
 
-### Without hardware
+## Reliable watch connection
 
-Tap **Use simulator** on the Connect screen. The full
-calibrate → detect → alert loop runs entirely in-app (`MockTwitchDevice`), no
-watch required.
+When CircuitPython prints `Advertising as 'FaceDefense' (name+service)`, the
+watch is ready. Connect from **HabitBuster's “Find my watch” button**, not from
+the phone's Bluetooth Settings pairing screen; Nordic UART is discovered and
+opened directly by the app.
+
+The app waits for the phone's Bluetooth stack to become ready, recovers stale
+OS connections, scans using both the `FaceDefense` name and UART service UUID,
+retries failed GATT connections three times, and verifies the finished link
+with `PING`/`PONG` before showing it as connected. If a connection still fails,
+the displayed BLE/Android/iOS error code is the useful diagnostic to capture.
+
+After this SDK/native BLE upgrade, install a newly built development client on
+the phone once. Fast Refresh can update JavaScript after that, but it cannot
+replace the native BLE module inside an older installed client.
 
 ## Building for iOS from Windows (EAS Build)
 
-The project uses **Expo SDK 54**. All iOS profiles in `eas.json` use
-`macos-sequoia-15.6-xcode-26.0`, which includes the iOS 26 SDK required for
-App Store Connect uploads starting April 28, 2026. See
+The project uses **Expo SDK 57**. EAS selects the SDK-compatible Xcode image for
+each iOS profile. See
 [Apple's requirements](https://developer.apple.com/news/?id=ueeok6yw) and
 [Expo's build images](https://docs.expo.dev/build-reference/infrastructure/).
 
 After pulling an SDK or native-dependency upgrade, run `npm ci` and install a
-fresh development build. An existing SDK 52 development client cannot run this
-SDK 54 project; restarting Metro alone is not enough.
+fresh development build. An older development client cannot run this SDK 57
+project; restarting Metro alone is not enough.
 
 Before building, check the dependency versions, types, and production JS bundle:
 
@@ -85,10 +94,9 @@ npx expo export --platform ios
 ```
 
 These checks do not compile or run the native iOS app. On the newly built app,
-verify **Use simulator** through calibration and monitoring, then test a real
-watch: Bluetooth permission, discovery, connection, calibration, detection,
-phone haptics, and disconnect/reconnect. Restart the app and confirm saved
-profiles still load. Test a standalone build with Metro stopped as well.
+test a real watch: Bluetooth permission, discovery, connection, calibration,
+detection, phone haptics, and disconnect/reconnect. Restart the app and confirm
+saved profiles still load. Test a standalone build with Metro stopped as well.
 
 iOS binaries can only be compiled on macOS, so there is no local iOS build on
 Windows. Instead, build in the cloud with **EAS Build** (runs on Apple hardware)
@@ -133,7 +141,6 @@ move the project to a path with no spaces or parentheses, e.g.
 | `src/models/behaviorProfile.ts` | `lib/models/behavior_profile.dart` |
 | `src/services/twitchDevice.ts` | `lib/services/twitch_device.dart` |
 | `src/services/bleTwitchDevice.ts` | `lib/services/ble_twitch_device.dart` |
-| `src/services/mockTwitchDevice.ts` | `lib/services/mock_twitch_device.dart` |
 | `src/services/calibration.ts` | `lib/services/calibration.dart` |
 | `src/services/alertService.ts` | `lib/services/alert_service.dart` |
 | `src/state/appController.ts` | `lib/services/app_controller.dart` |

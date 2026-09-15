@@ -11,9 +11,9 @@ import {
   BleScanner,
   BleTwitchDevice,
   ensureBlePermissions,
+  formatBleError,
   isOurWatch,
 } from '../services/bleTwitchDevice';
-import { MockTwitchDevice } from '../services/mockTwitchDevice';
 import {
   DeviceConnection,
   DeviceMode,
@@ -70,6 +70,8 @@ export class AppController {
   monitoring = false;
   /** True while auto-discovering the watch by name. */
   searching = false;
+  /** Specific progress shown while the BLE stack scans, connects, and verifies. */
+  connectionStatus = 'Ready to connect';
 
   // ---- Behaviors ----------------------------------------------------------
   profiles: BehaviorProfile[] = [];
@@ -95,9 +97,6 @@ export class AppController {
   }
 
   // ---- Derived getters ----------------------------------------------------
-  get isSimulated(): boolean {
-    return this.device?.isSimulated ?? false;
-  }
   get isConnected(): boolean {
     return this.connection === DeviceConnection.connected;
   }
@@ -129,10 +128,6 @@ export class AppController {
   //  Device wiring
   // =========================================================================
 
-  async useSimulator(): Promise<void> {
-    await this.attach(new MockTwitchDevice());
-  }
-
   async useBleDevice(bleDevice: Device): Promise<void> {
     await this.attach(new BleTwitchDevice(bleDevice));
   }
@@ -142,8 +137,10 @@ export class AppController {
    * the first match. Returns null on success, or a user-facing error message.
    */
   async connectToWatch(): Promise<string | null> {
+    if (this.isConnected) return null;
     if (this.searching) return null;
     this.searching = true;
+    this.connectionStatus = 'Checking Bluetooth…';
     this.notify();
     const scanner = new BleScanner();
     let stopScan: Unsubscribe = () => {};
@@ -154,18 +151,39 @@ export class AppController {
       }
       const ready = await scanner.isReady();
       if (!ready.ok) {
-        return `${ready.reason} You can use the simulator instead.`;
+        return ready.reason ?? 'Bluetooth is not ready.';
       }
 
-      const device = await new Promise<Device | null>((resolve) => {
-        const timeout = setTimeout(() => resolve(null), 13000);
-        stopScan = scanner.startBroad((d) => {
-          if (isOurWatch(d)) {
+      this.connectionStatus = 'Checking for an existing watch link…';
+      this.notify();
+      const known = (await scanner.connectedWatches()).filter(isOurWatch);
+      let device: Device | null =
+        known.find((candidate) => candidate.name === UartProtocol.deviceName) ??
+        known[0] ??
+        null;
+
+      if (device == null) {
+        this.connectionStatus = `Scanning for ${UartProtocol.deviceName}…`;
+        this.notify();
+        device = await new Promise<Device | null>((resolve, reject) => {
+          let settled = false;
+          const finish = (result: Device | null, error?: string) => {
+            if (settled) return;
+            settled = true;
             clearTimeout(timeout);
-            resolve(d);
-          }
+            stopScan();
+            if (error) reject(new Error(error));
+            else resolve(result);
+          };
+          const timeout = setTimeout(() => finish(null), 15000);
+          stopScan = scanner.startBroad(
+            (candidate) => {
+              if (isOurWatch(candidate)) finish(candidate);
+            },
+            (error) => finish(null, `Bluetooth scan failed: ${error}`),
+          );
         });
-      });
+      }
       scanner.stop();
 
       if (device == null) {
@@ -174,11 +192,17 @@ export class AppController {
           `Make sure it's powered on and nearby.`
         );
       }
+      this.searching = false;
       await this.useBleDevice(device);
+      this.connectionStatus = 'Connecting and verifying data…';
+      this.notify();
       await this.connect();
+      this.connectionStatus = 'Connected and verified';
+      this.notify();
       return null;
     } catch (e) {
-      return `Connection failed: ${String(e)}`;
+      this.connectionStatus = 'Connection failed';
+      return `Connection failed: ${formatBleError(e)}`;
     } finally {
       stopScan();
       this.searching = false;
@@ -216,6 +240,7 @@ export class AppController {
     this.connection = DeviceConnection.disconnected;
     this.lastSample = null;
     this.monitoring = false;
+    this.connectionStatus = 'Ready to connect';
   }
 
   async connect(): Promise<void> {
@@ -227,12 +252,6 @@ export class AppController {
 
   async disconnect(): Promise<void> {
     await this.device?.disconnect();
-  }
-
-  /** Drives the simulator's "wearer is doing the behavior" flag; no-op on BLE. */
-  setSimulatedGesture(performing: boolean): void {
-    const d = this.device;
-    if (d instanceof MockTwitchDevice) d.performingGesture = performing;
   }
 
   /** The live sample subscription helper for screens that need a stream. */
@@ -273,7 +292,6 @@ export class AppController {
 
   /** End a live preview and return the device to calibration streaming. */
   async endProfilePreview(): Promise<void> {
-    this.setSimulatedGesture(false);
     await this.device?.setMode(DeviceMode.calibrate);
   }
 

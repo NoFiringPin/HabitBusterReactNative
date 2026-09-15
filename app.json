@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "facedefense",
-    "newArchEnabled": true,
-    "splash": {
-      "resizeMode": "contain",
-      "backgroundColor": "#f4fff9"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.habitbuster.app",
@@ -48,7 +43,14 @@
           "bluetoothAlwaysPermission": "HabitBuster connects to your wearable over Bluetooth to detect hand-to-face behaviors."
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f4fff9"
+        }
+      ]
     ],
     "extra": {
       "eas": {

@@ -2,14 +2,51 @@ import React from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
+  ScrollViewProps,
   StyleProp,
   StyleSheet,
   Text,
   View,
   ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppColors } from '../theme';
+
+/**
+ * Shared responsive screen shell. Native-stack screens already account for
+ * the header at the top; headerless screens can opt into the top safe area.
+ */
+export function ScreenScrollView({
+  children,
+  includeTopInset = false,
+  contentContainerStyle,
+  style,
+  ...props
+}: ScrollViewProps & { includeTopInset?: boolean }) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <ScrollView
+      {...props}
+      style={[styles.screen, style]}
+      contentContainerStyle={[
+        styles.screenBody,
+        {
+          paddingTop: 16 + (includeTopInset ? insets.top : 0),
+          paddingBottom: 24 + insets.bottom,
+        },
+        contentContainerStyle,
+      ]}
+      automaticallyAdjustKeyboardInsets
+      keyboardShouldPersistTaps={props.keyboardShouldPersistTaps ?? 'handled'}
+      showsVerticalScrollIndicator={props.showsVerticalScrollIndicator ?? false}
+    >
+      <View style={styles.screenColumn}>{children}</View>
+    </ScrollView>
+  );
+}
 
 /** A rounded, bordered card — the RN analogue of the Flutter `appCard`. */
 export function AppCard(props: {
@@ -128,17 +165,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    minHeight: 48,
+    paddingHorizontal: 12,
     paddingVertical: 14,
     borderRadius: 14,
   },
-  primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700', textAlign: 'center', flexShrink: 1 },
   outlineBtn: {
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 12,
     paddingVertical: 13,
     borderRadius: 14,
     borderWidth: 1.5,
     backgroundColor: '#fff',
   },
-  outlineBtnText: { fontSize: 14, fontWeight: '700' },
+  outlineBtnText: { fontSize: 14, fontWeight: '700', textAlign: 'center', flexShrink: 1 },
+  screen: {
+    flex: 1,
+    backgroundColor: AppColors.bg,
+  },
+  screenBody: {
+    flexGrow: 1,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  screenColumn: {
+    width: '100%',
+    maxWidth: 640,
+  },
 });

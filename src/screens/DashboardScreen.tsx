@@ -1,8 +1,8 @@
 import { useNavigation } from '@react-navigation/native';
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppCard, PrimaryButton, StatusPill } from '../components/ui';
+import { AppCard, PrimaryButton, ScreenScrollView, StatusPill } from '../components/ui';
 import { appController } from '../state/appController';
 import { useAppController } from '../state/useAppController';
 import { AppColors } from '../theme';
@@ -27,7 +27,7 @@ export function DashboardScreen() {
   const streak = c.streakDays();
 
   return (
-    <ScrollView style={{ backgroundColor: AppColors.bg }} contentContainerStyle={styles.container}>
+    <ScreenScrollView includeTopInset>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.logoBox}>
@@ -130,13 +130,11 @@ export function DashboardScreen() {
           onPress={() => nav.navigate('Monitor')}
         />
       </View>
-      <View style={{ height: 32 }} />
-    </ScrollView>
+    </ScreenScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 12 },
   row: { flexDirection: 'row', alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   logoBox: {
@@ -146,7 +144,7 @@ const styles = StyleSheet.create({
   appName: { fontSize: 16, fontWeight: '700', color: AppColors.greenDark },
   cardTitle: { fontSize: 13, fontWeight: '700', color: AppColors.ink },
   sub: { fontSize: 11, color: AppColors.sub },
-  shieldTitle: { fontSize: 15, fontWeight: '600', color: '#283040' },
+  shieldTitle: { fontSize: 15, fontWeight: '600', color: '#283040', flexShrink: 1 },
   bigCount: { fontSize: 50, lineHeight: 52, color: '#009b73', fontWeight: '500' },
   weekRow: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 14, gap: 4 },
   weekNum: { fontSize: 8, color: AppColors.sub },

@@ -2,33 +2,36 @@ import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import type { Device } from 'react-native-ble-plx';
 
-import { AppCard, PrimaryButton } from '../components/ui';
+import { AppCard, PrimaryButton, ScreenScrollView } from '../components/ui';
 import {
   BleScanner,
   ensureBlePermissions,
+  formatBleError,
   isOurWatch,
 } from '../services/bleTwitchDevice';
+import { UartProtocol } from '../services/twitchDevice';
 import { appController } from '../state/appController';
 import { AppColors } from '../theme';
 import type { Nav } from '../navigation';
 
 /**
- * Lets the user connect to a real wearable over BLE, or fall back to the
- * built-in simulator. Ported from `lib/screens/scan_screen.dart`.
+ * Lets the user connect to a wearable over BLE.
  */
 export function ScanScreen() {
   const nav = useNavigation<Nav<'Scan'>>();
   const scannerRef = useRef(new BleScanner());
   const stopRef = useRef<null | (() => void)>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deviceCountRef = useRef(0);
   const [devices, setDevices] = useState<Record<string, Device>>({});
   const [connecting, setConnecting] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,21 +39,29 @@ export function ScanScreen() {
     return () => {
       stopRef.current?.();
       scannerRef.current.stop();
+      if (timeoutRef.current != null) clearTimeout(timeoutRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function beginScan() {
+    stopRef.current?.();
+    scannerRef.current.stop();
+    if (timeoutRef.current != null) clearTimeout(timeoutRef.current);
     setError(null);
     setDevices({});
+    deviceCountRef.current = 0;
+    setScanning(true);
     const granted = await ensureBlePermissions();
     if (!granted) {
-      setError('Bluetooth permission is needed to scan. You can still use the simulator below.');
+      setScanning(false);
+      setError('Bluetooth permission is needed to scan. Enable it in Settings and try again.');
       return;
     }
     const ready = await scannerRef.current.isReady();
     if (!ready.ok) {
-      setError(`${ready.reason} You can still use the simulator below.`);
+      setScanning(false);
+      setError(ready.reason ?? 'Bluetooth is not ready.');
       return;
     }
     // Fold in any watch iOS already considers connected (a scan won't surface it).
@@ -59,6 +70,7 @@ export function ScanScreen() {
       setDevices((prev) => {
         const next = { ...prev };
         for (const d of known) next[d.id] = d;
+        deviceCountRef.current = Object.keys(next).length;
         return next;
       });
     }
@@ -67,14 +79,32 @@ export function ScanScreen() {
         // Show named devices, plus any device advertising our UART service even
         // if it comes through unnamed (common for the watch on iOS).
         if (!d.name && !d.localName && !isOurWatch(d)) return;
-        setDevices((prev) => ({ ...prev, [d.id]: d }));
+        setDevices((prev) => {
+          const next = { ...prev, [d.id]: d };
+          deviceCountRef.current = Object.keys(next).length;
+          return next;
+        });
       },
-      (msg) => setError(`Scan error: ${msg}`),
+      (msg) => {
+        setScanning(false);
+        setError(`Scan error: ${msg}`);
+      },
     );
+    timeoutRef.current = setTimeout(() => {
+      stopRef.current?.();
+      setScanning(false);
+      if (deviceCountRef.current === 0) {
+        setError(
+          `No devices found. Confirm the watch says “Advertising as '${UartProtocol.deviceName}'”, then scan again.`,
+        );
+      }
+    }, 15000);
   }
 
   async function connectTo(device: Device) {
     setConnecting(true);
+    setScanning(false);
+    if (timeoutRef.current != null) clearTimeout(timeoutRef.current);
     scannerRef.current.stop();
     try {
       await appController.useBleDevice(device);
@@ -82,21 +112,15 @@ export function ScanScreen() {
       nav.goBack();
     } catch (e) {
       setConnecting(false);
-      setError(`Connection failed: ${String(e)}`);
+      setError(`Connection failed: ${formatBleError(e)}`);
     }
-  }
-
-  async function useSimulator() {
-    setConnecting(true);
-    await appController.useSimulator();
-    await appController.connect();
-    nav.goBack();
   }
 
   if (connecting) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={AppColors.green} />
+        <Text style={[styles.sub, { marginTop: 12 }]}>Connecting and verifying the data link…</Text>
       </View>
     );
   }
@@ -110,25 +134,7 @@ export function ScanScreen() {
   });
 
   return (
-    <ScrollView
-      style={{ backgroundColor: AppColors.bg }}
-      contentContainerStyle={styles.container}
-    >
-      <AppCard borderColor={AppColors.blueBorder}>
-        <View style={styles.row}>
-          <Text style={{ fontSize: 28, marginRight: 12 }}>💾</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>Use the simulator</Text>
-            <Text style={styles.sub}>
-              Try the full calibrate → detect loop with no hardware.
-            </Text>
-          </View>
-          <View style={{ width: 90 }}>
-            <PrimaryButton label="Start" color={AppColors.blue} onPress={useSimulator} />
-          </View>
-        </View>
-      </AppCard>
-
+    <ScreenScrollView>
       <Text style={styles.heading}>Nearby Bluetooth devices</Text>
       <Text style={styles.sub}>Your wearable advertises as a Nordic UART device.</Text>
 
@@ -140,7 +146,9 @@ export function ScanScreen() {
 
       <View style={{ height: 10 }} />
       {sorted.length === 0 ? (
-        <Text style={[styles.sub, { textAlign: 'center', marginTop: 24 }]}>Scanning…</Text>
+        <Text style={[styles.sub, { textAlign: 'center', marginTop: 24 }]}>
+          {scanning ? 'Scanning…' : 'No nearby devices yet.'}
+        </Text>
       ) : (
         sorted.map((r) => {
           const isWatch = isOurWatch(r);
@@ -169,17 +177,22 @@ export function ScanScreen() {
           );
         })
       )}
-      <View style={{ height: 32 }} />
-    </ScrollView>
+
+      <View style={{ height: 12 }} />
+      <PrimaryButton
+        label={scanning ? 'Scanning…' : 'Scan again'}
+        loading={scanning}
+        disabled={scanning}
+        onPress={() => void beginScan()}
+      />
+    </ScreenScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: AppColors.bg },
   row: { flexDirection: 'row', alignItems: 'center' },
-  cardTitle: { fontSize: 14, fontWeight: '800', color: AppColors.ink },
   deviceName: { fontSize: 14, fontWeight: '700', color: AppColors.ink },
-  sub: { fontSize: 11, color: AppColors.sub },
-  heading: { fontSize: 13, fontWeight: '700', color: AppColors.ink, marginTop: 18 },
+  sub: { fontSize: 11, lineHeight: 16, color: AppColors.sub, flexShrink: 1 },
+  heading: { fontSize: 16, fontWeight: '800', color: AppColors.ink },
 });

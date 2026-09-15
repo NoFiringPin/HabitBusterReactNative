@@ -1,8 +1,8 @@
 import { useNavigation } from '@react-navigation/native';
 import React, { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppCard } from '../components/ui';
+import { AppCard, ScreenScrollView } from '../components/ui';
 import { appController } from '../state/appController';
 import { useAppController } from '../state/useAppController';
 import { AppColors } from '../theme';
@@ -20,7 +20,6 @@ export function MonitorScreen() {
       void appController.startMonitoring();
     }
     return () => {
-      appController.setSimulatedGesture(false);
       if (appController.monitoring) void appController.stopMonitoring();
     };
   }, []);
@@ -49,7 +48,7 @@ export function MonitorScreen() {
   const over = motion > threshold;
 
   return (
-    <ScrollView style={{ backgroundColor: AppColors.bg }} contentContainerStyle={styles.container}>
+    <ScreenScrollView>
       {/* Status circle */}
       <View style={{ alignItems: 'center' }}>
         <View style={[styles.statusCircle, { borderColor: color, backgroundColor: color + '1f' }]}>
@@ -110,19 +109,6 @@ export function MonitorScreen() {
         </Pressable>
       </View>
 
-      {/* Simulator hold button */}
-      {c.isSimulated && (
-        <Pressable
-          onPressIn={() => appController.setSimulatedGesture(true)}
-          onPressOut={() => appController.setSimulatedGesture(false)}
-          style={styles.simBtn}
-        >
-          <Text style={styles.simBtnText}>
-            Simulator: press & HOLD to fake the behavior
-          </Text>
-        </Pressable>
-      )}
-
       {/* Event feed */}
       <AppCard style={{ marginTop: 16 }}>
         <Text style={styles.feedTitle}>Recent catches</Text>
@@ -139,8 +125,7 @@ export function MonitorScreen() {
           ))
         )}
       </AppCard>
-      <View style={{ height: 32 }} />
-    </ScrollView>
+    </ScreenScrollView>
   );
 }
 
@@ -160,10 +145,9 @@ function formatTime(ms: number): string {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: AppColors.bg },
   row: { flexDirection: 'row', alignItems: 'center' },
-  sub: { fontSize: 11, color: AppColors.sub },
+  sub: { fontSize: 11, lineHeight: 16, color: AppColors.sub, flexShrink: 1 },
   statusCircle: {
     width: 180, height: 180, borderRadius: 90, borderWidth: 6,
     alignItems: 'center', justifyContent: 'center',
@@ -185,11 +169,6 @@ const styles = StyleSheet.create({
     width: 52, height: 52, borderRadius: 12, backgroundColor: '#e6f9f0',
     alignItems: 'center', justifyContent: 'center',
   },
-  simBtn: {
-    marginTop: 16, paddingVertical: 15, alignItems: 'center', borderRadius: 14,
-    borderWidth: 1.5, borderColor: AppColors.red, backgroundColor: '#fff2f6',
-  },
-  simBtnText: { fontSize: 13, fontWeight: '700', color: AppColors.red },
   feedTitle: { fontSize: 13, fontWeight: '700', color: AppColors.ink },
   feedRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, gap: 8 },
   feedTime: { fontSize: 12, fontWeight: '600', color: AppColors.ink },

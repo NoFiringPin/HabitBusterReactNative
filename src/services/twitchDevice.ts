@@ -58,8 +58,7 @@ export type Listener<T> = (value: T) => void;
 export type Unsubscribe = () => void;
 
 /**
- * Abstraction over "the wearable", so the app can run identically against a
- * real BLE device or the built-in `MockTwitchDevice` simulator.
+ * Abstraction over the connected wearable.
  *
  * Ported from the Flutter `TwitchDevice` abstract class; Dart broadcast streams
  * become simple listener registries (`onConnection` / `onSample` / `onEvent`).
@@ -67,8 +66,6 @@ export type Unsubscribe = () => void;
 export interface TwitchDevice {
   /** Human-readable name shown in the UI. */
   readonly name: string;
-  /** True for the simulator, so the UI can label it clearly. */
-  readonly isSimulated: boolean;
   readonly connection: DeviceConnection;
 
   /** Subscribe to connection-state changes. Returns an unsubscribe fn. */

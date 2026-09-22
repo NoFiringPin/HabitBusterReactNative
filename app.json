@@ -3,12 +3,17 @@
     "name": "HabitBuster",
     "slug": "facedefense",
     "version": "1.0.0",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "facedefense",
     "ios": {
+      "icon": "./assets/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.habitbuster.app",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "HabitBuster connects to your wearable over Bluetooth to detect hand-to-face behaviors.",
         "NSBluetoothPeripheralUsageDescription": "HabitBuster connects to your wearable over Bluetooth to detect hand-to-face behaviors.",

@@ -1,0 +1,24 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "info": {
+      "en-US": {
+        "title": "HabitBuster",
+        "description": "Break the habit. Level up. Feel the difference.\n\nFaceDefense syncs with your wrist-worn sensor to monitor your physical routines in real time. The second a subconscious urge takes over, you'll catch yourself—turning daily habit control into a fun, rewarding quest.\n\nHow it works: Simply wear the motion band on your wrist and link it to the app. Using 3D motion dynamics, the sensor's precision gesture engine separates regular hand movements from unwanted behaviors like scratching, tapping, pinching, or skin picking. After a simple calibration step where you teach the wearable your specific motions, it streams physical tracking data directly to your phone to reward habit-free hours and protect your streak.\n\nKey Features:\n\n• Real-Time 3D Gesture Tracking — intelligent gesture filters that spot repetitive hand-to-face or body-touching actions on the fly\n• Personalized Habit Calibration — record and train the sensor on your own unique fidgeting motions for tailored accuracy\n• Macro & Micro Data Views — clear Home and History dashboards displaying your total daily touch counts alongside detailed movement logs\n• Hourly Hot Zone Alerts — visual trend maps highlighting your peak fidgeting hours so you can pinpoint when bad habits surface\n• Streaks & Achievement Trophies — earn XP, build multi-day streaks, and unlock trophies for every hour you keep your hands still\n• Child-Friendly Parental Mode — a built-in setup option designed for parents to help kids curb harmful physical habits early\n\nWhether you want to stop picking at your skin during study sessions, stay mindful while watching TV, or guide your kids toward better habits, FaceDefense turns breaking bad routines into an engaging game.",
+        "keywords": [
+          "habit tracker",
+          "skin picking",
+          "fidget",
+          "wearable",
+          "gesture",
+          "streak",
+          "mindfulness",
+          "behavior",
+          "self control"
+        ],
+        "promoText": "Level up your habits using HabitBuster, the gamified app that tracks wrist movements to convert habit reversal into a fun rewarding experience.",
+        "privacyPolicyUrl": "https://kevinyuantulu.github.io/Privacy_Policy/"
+      }
+    }
+  }
+}

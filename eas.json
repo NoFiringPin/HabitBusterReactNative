@@ -28,6 +28,14 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appName": "HabitBuster",
+        "bundleIdentifier": "com.habitbuster.app",
+        "companyName": "Coding Minds",
+        "language": "en-US",
+        "metadataPath": "./store.config.json"
+      }
+    }
   }
 }

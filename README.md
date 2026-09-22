@@ -79,37 +79,74 @@ After this SDK/native BLE upgrade, install a newly built development client on
 the phone once. Fast Refresh can update JavaScript after that, but it cannot
 replace the native BLE module inside an older installed client.
 
-## Passive tracking and phone sound
+## Silent tracking and phone sound
 
-In **Device & Behaviors**, choose a calibrated behavior, turn on **Passive
-tracking**, and tap **Start passive tracking**. Detections still update today's
+In **Device & Behaviors**, choose a calibrated behavior, turn on **Silent
+tracking**, and tap **Start silent tracking**. Detections still update today's
 count and history, but automatic phone vibration, sound, and the watch's red
 alert light are muted. Its normal status light stays on. You can move between
 app screens without stopping the session; use **Pause tracking** to stop.
 Opening the live monitor only displays the session; use its Start button if
 tracking is paused. Starting calibration pauses the tracking session too.
 
-Turn passive tracking off to restore vibration/watch alerts. **Phone sound**
-optionally adds one short chime per detection; it defaults off. **Test sound**
-and **Test vibration** play once even in passive mode, without changing your
-preferences. Sound uses the phone's current audio output and volume, respects
-silent mode, and mixes with other audio. No microphone permission is requested.
+Turn silent tracking off to restore vibration/watch alerts. **Phone sound**
+optionally adds one short chime per detection; it defaults off, and you can
+pick which bundled sound plays (see below). **Test sound** and **Test
+vibration** play once even during silent tracking, without changing your
+preferences. Sound uses the phone's current audio output and volume and plays
+even with the phone's ring/silent switch off, mixing with other audio. No
+microphone permission is requested.
 
 This simple version records events while the app is running and receiving BLE
 data. Keep the app open and the watch connected; background/locked-phone
-tracking and recovery of events missed while disconnected are not guaranteed.
-A disconnect or app restart ends the session: reconnect and start tracking
-again. Preferences are saved and sent to the watch on reconnect. If the watch
-reboots while disconnected, its existing firmware defaults apply until then.
+tracking and recovery of events missed while disconnected are not guaranteed
+beyond what **Passive mode** (below) provides. A disconnect or app restart ends
+the session: reconnect and start tracking again. Preferences are saved and
+sent to the watch on reconnect. If the watch reboots while disconnected, its
+existing firmware defaults apply until then.
 
-The new `expo-audio` dependency requires a **new development build** once;
-Fast Refresh cannot add its native module to an existing build. No new firmware
-is needed for these controls (`ALERT 0/1` is already supported).
+The `expo-audio` dependency requires a **new development build** once; Fast
+Refresh cannot add its native module to an existing build. No new firmware is
+needed for these controls (`ALERT 0/1` is already supported).
 
-Quick physical check: start passive tracking, cause a detection, and confirm
-the count rises without alerts. Return to the dashboard and repeat. Turn passive
-off, enable Phone sound, test the chime, and detect again. Pause and confirm
-counting stops. Reconnect and confirm the passive/sound preferences are retained.
+Quick physical check: start silent tracking, cause a detection, and confirm
+the count rises without alerts. Return to the dashboard and repeat. Turn silent
+tracking off, enable Phone sound, test the chime, and detect again. Pause and
+confirm counting stops. Reconnect and confirm the silent-tracking/sound
+preferences are retained.
+
+## Sound library
+
+Phone sound isn't limited to one chime: **Device & Behaviors** lists a small
+set of bundled sounds (`src/services/soundLibrary.ts`) to choose between —
+currently **Chime** and **Alarm**. Tap one to select it, then **Test sound**
+to preview it. Adding another sound means bundling a short audio file under
+`assets/sounds/` and adding an entry to `soundLibrary.ts`; iOS does not expose
+its own ringtone/system sounds to third-party apps, so this simple bundled
+list is the practical alternative.
+
+## Passive mode (background alerts)
+
+Passive mode is separate from silent tracking: turned on, it sends a phone
+notification when a habit is detected while HabitBuster is backgrounded or the
+phone is locked, regardless of whether silent tracking is muting vibration and
+sound in the foreground. Turn it on in **Device & Behaviors**; the first time,
+iOS prompts for notification permission — if you decline, re-enable
+notifications for HabitBuster in Settings and try the toggle again.
+
+The new `expo-notifications` dependency requires a **new development build**
+once; Fast Refresh cannot add its native module to an existing build.
+
+Background delivery depends on iOS keeping the app's existing
+Bluetooth-central background execution window alive long enough to receive the
+detection and post the notification. Like the rest of this simple version's
+background behavior, this is not guaranteed at the OS level, especially after
+extended idle time or in Low Power Mode.
+
+Quick physical check: enable Passive mode, background the app (press Home or
+lock the phone) while a tracking session is running, cause a detection on the
+watch, and confirm a notification appears. Return to the app and confirm the
+event was still logged in today's count.
 
 ## Building for iOS from Windows (EAS Build)
 
@@ -194,6 +231,6 @@ move the project to a path with no spaces or parentheses, e.g.
 |---|---|
 | `flutter_blue_plus` | `react-native-ble-plx` |
 | `shared_preferences` | `@react-native-async-storage/async-storage` |
-| `HapticFeedback` / `SystemSound` | `expo-haptics` (tone dropped; add `expo-av` to restore) |
+| `HapticFeedback` / `SystemSound` | `expo-haptics` + `expo-audio` (bundled sound library, see above) |
 | `ChangeNotifier` + `ListenableBuilder` | singleton store + `useSyncExternalStore` |
 | Navigator / MaterialPageRoute | `@react-navigation/native-stack` |

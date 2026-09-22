@@ -4,6 +4,7 @@ import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { AppCard, OutlineButton, PrimaryButton, ScreenScrollView, StatusPill } from '../components/ui';
 import type { BehaviorProfile } from '../models/behaviorProfile';
+import { SOUND_LIBRARY } from '../services/soundLibrary';
 import { DeviceConnection } from '../services/twitchDevice';
 import { appController } from '../state/appController';
 import { useAppController } from '../state/useAppController';
@@ -32,6 +33,14 @@ export function DeviceHubScreen() {
     try { await c.alerts.testSound(); }
     catch (error) {
       Alert.alert('Could not play sound', error instanceof Error ? error.message : String(error));
+    } finally { setBusy(false); }
+  }
+
+  async function updatePassiveMode(next: boolean) {
+    setBusy(true);
+    try {
+      const error = await appController.setPassiveMode(next);
+      if (error != null) Alert.alert('Could not enable Passive mode', error);
     } finally { setBusy(false); }
   }
 
@@ -177,7 +186,7 @@ export function DeviceHubScreen() {
           c.monitoring
             ? 'Pause tracking'
             : canMonitor
-              ? c.passiveTracking ? 'Start passive tracking' : 'Start tracking with alerts'
+              ? c.silentTracking ? 'Start silent tracking' : 'Start tracking with alerts'
             : c.isConnected
               ? 'Pick a behavior to monitor'
               : 'Connect a device to monitor'
@@ -188,7 +197,7 @@ export function DeviceHubScreen() {
       />
       <Text style={[styles.sub, { marginTop: 8 }]}>
         {c.monitoring
-          ? c.passiveTracking ? 'Tracking silently. You can leave this screen.' : 'Tracking with alerts. You can leave this screen.'
+          ? c.silentTracking ? 'Tracking silently. You can leave this screen.' : 'Tracking with alerts. You can leave this screen.'
           : 'Tracking paused.'}
         {' Keep the app open and the watch connected to record events.'}
       </Text>
@@ -199,37 +208,56 @@ export function DeviceHubScreen() {
       <AppCard>
         <View style={styles.row}>
           <Text style={{ fontSize: 20, marginRight: 12 }}>
-            {c.passiveTracking ? '🔇' : '🔔'}
+            {c.silentTracking ? '🔇' : '🔔'}
           </Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.behaviorName}>Passive tracking</Text>
+            <Text style={styles.behaviorName}>Silent tracking</Text>
             <Text style={styles.sub}>Count habits without vibration, sound, or the watch&apos;s red alert light.</Text>
           </View>
           <Switch
-            value={c.passiveTracking}
+            value={c.silentTracking}
             disabled={busy}
-            accessibilityLabel="Passive tracking"
+            accessibilityLabel="Silent tracking"
             trackColor={{ true: AppColors.green }}
-            onValueChange={(v) => void updateTracking(() => c.setPassiveTracking(v))}
+            onValueChange={(v) => void updateTracking(() => c.setSilentTracking(v))}
           />
         </View>
-        <Text style={[styles.sub, { marginTop: 8 }]}>Turn off passive tracking for vibration and watch alerts.</Text>
+        <Text style={[styles.sub, { marginTop: 8 }]}>Turn off silent tracking for vibration and watch alerts.</Text>
         <View style={[styles.row, { marginTop: 14 }]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.behaviorName}>Phone sound</Text>
             <Text style={styles.sub}>
-              {c.passiveTracking ? 'Muted during passive tracking.' : 'Add a short chime when a habit is detected.'}
+              {c.silentTracking ? 'Muted during silent tracking.' : 'Add a short chime when a habit is detected.'}
             </Text>
           </View>
           <Switch
             value={c.alerts.soundEnabled}
-            disabled={busy || c.passiveTracking}
+            disabled={busy || c.silentTracking}
             accessibilityLabel="Phone sound alerts"
             trackColor={{ true: AppColors.green }}
             onValueChange={(v) => void updateTracking(() => c.setSoundEnabled(v))}
           />
         </View>
-        <Text style={[styles.sub, { marginTop: 8 }]}>Sound follows your phone&apos;s volume and silent mode. Test buttons play once, even in passive mode.</Text>
+        <View style={[styles.row, { marginTop: 10, flexWrap: 'wrap' }]}>
+          {SOUND_LIBRARY.map((opt) => {
+            const active = c.alerts.soundId === opt.id;
+            return (
+              <Pressable
+                key={opt.id}
+                disabled={busy || !c.alerts.soundEnabled}
+                onPress={() => void updateTracking(() => c.setAlertSoundId(opt.id))}
+                style={[
+                  styles.soundChip,
+                  active && styles.soundChipActive,
+                  !c.alerts.soundEnabled && { opacity: 0.5 },
+                ]}
+              >
+                <Text style={[styles.soundChipText, active && styles.soundChipTextActive]}>{opt.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={[styles.sub, { marginTop: 8 }]}>Sound follows your phone&apos;s volume; it plays even in silent mode. Test buttons play once, even during silent tracking.</Text>
         <View style={{ height: 10 }} />
         <OutlineButton label="Test sound" disabled={busy} onPress={() => void testSound()} />
         <View style={{ height: 8 }} />
@@ -237,6 +265,29 @@ export function DeviceHubScreen() {
           label="Test vibration"
           onPress={() => appController.testAlert()}
         />
+      </AppCard>
+
+      <View style={{ height: 12 }} />
+      <AppCard>
+        <View style={styles.row}>
+          <Text style={{ fontSize: 20, marginRight: 12 }}>{c.passiveMode ? '📳' : '🔕'}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.behaviorName}>Passive mode</Text>
+            <Text style={styles.sub}>
+              Sends a phone notification when a habit is detected while HabitBuster is backgrounded or the phone is locked.
+            </Text>
+          </View>
+          <Switch
+            value={c.passiveMode}
+            disabled={busy}
+            accessibilityLabel="Passive mode"
+            trackColor={{ true: AppColors.green }}
+            onValueChange={(v) => void updatePassiveMode(v)}
+          />
+        </View>
+        <Text style={[styles.sub, { marginTop: 8 }]}>
+          Works independently of silent tracking. Delivery while backgrounded isn&apos;t fully guaranteed by iOS.
+        </Text>
       </AppCard>
     </ScreenScrollView>
   );
@@ -253,4 +304,11 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 30, textAlign: 'center', marginBottom: 8 },
   emptyText: { fontSize: 12, color: AppColors.sub, textAlign: 'center', lineHeight: 17 },
   behaviorName: { fontSize: 14, fontWeight: '700', color: AppColors.ink },
+  soundChip: {
+    borderWidth: 1, borderColor: '#e4e8ee', borderRadius: 16,
+    paddingVertical: 6, paddingHorizontal: 14, marginRight: 8, marginTop: 4,
+  },
+  soundChipActive: { borderColor: AppColors.green, backgroundColor: AppColors.pillGreen },
+  soundChipText: { fontSize: 12, fontWeight: '600', color: AppColors.sub },
+  soundChipTextActive: { color: AppColors.greenDark },
 });

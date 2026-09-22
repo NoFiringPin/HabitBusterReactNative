@@ -2,13 +2,17 @@ import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-aud
 import * as Haptics from 'expo-haptics';
 import { Vibration } from 'react-native';
 
-/** Phone feedback. Passive tracking disables both vibration and sound. */
+import { DEFAULT_SOUND_ID, soundById } from './soundLibrary';
+
+/** Phone feedback. Silent tracking disables both vibration and sound. */
 export class AlertService {
   private burst: ReturnType<typeof setInterval> | null = null;
   private player: AudioPlayer | null = null;
+  private playerSoundId: string | null = null;
   private soundGeneration = 0;
   private _enabled = true;
   private _soundEnabled = false;
+  private _soundId: string = DEFAULT_SOUND_ID;
 
   get enabled(): boolean { return this._enabled; }
   set enabled(value: boolean) {
@@ -20,6 +24,17 @@ export class AlertService {
   set soundEnabled(value: boolean) {
     this._soundEnabled = value;
     if (!value) this.stopSound();
+  }
+
+  get soundId(): string { return this._soundId; }
+  set soundId(value: string) {
+    if (value === this._soundId) return;
+    this._soundId = value;
+    // Force playSound() to rebuild the player against the new source.
+    this.soundGeneration++;
+    this.player?.remove();
+    this.player = null;
+    this.playerSoundId = null;
   }
 
   async trigger(): Promise<void> {
@@ -66,12 +81,17 @@ export class AlertService {
   private async playSound(): Promise<void> {
     const generation = ++this.soundGeneration;
     await setAudioModeAsync({
-      playsInSilentMode: false,
+      playsInSilentMode: true,
       shouldPlayInBackground: false,
       interruptionMode: 'mixWithOthers',
     });
     if (generation !== this.soundGeneration) return;
-    const player = this.player ??= createAudioPlayer(require('../../assets/alert.wav'));
+    if (this.player == null || this.playerSoundId !== this._soundId) {
+      this.player?.remove();
+      this.player = createAudioPlayer(soundById(this._soundId).source);
+      this.playerSoundId = this._soundId;
+    }
+    const player = this.player;
     if (!player.isLoaded) {
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {

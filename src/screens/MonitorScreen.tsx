@@ -58,7 +58,7 @@ export function MonitorScreen() {
         </View>
         <Text style={styles.watching}>Watching: {active.name}</Text>
         <Text style={styles.sub}>
-          {c.monitoring ? c.passiveTracking ? 'Passive tracking · alerts silent' : 'Tracking with alerts' : 'Paused'}
+          {c.monitoring ? c.silentTracking ? 'Silent tracking · alerts muted' : 'Tracking with alerts' : 'Paused'}
         </Text>
       </View>
 
@@ -104,9 +104,9 @@ export function MonitorScreen() {
         <Pressable
           disabled={busy}
           accessibilityRole="switch"
-          accessibilityLabel="Passive tracking"
-          accessibilityState={{ checked: c.passiveTracking, disabled: busy }}
-          onPress={() => void updateTracking(() => c.setPassiveTracking(!c.passiveTracking))}
+          accessibilityLabel="Silent tracking"
+          accessibilityState={{ checked: c.silentTracking, disabled: busy }}
+          onPress={() => void updateTracking(() => c.setSilentTracking(!c.silentTracking))}
           style={styles.alertToggle}
         >
           <Text style={{ fontSize: 20 }}>{c.alerts.enabled ? '🔔' : '🔕'}</Text>

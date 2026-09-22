@@ -88,7 +88,7 @@ export function DashboardScreen() {
         <View style={styles.row}>
           <Text style={styles.shieldTitle}>🛡️ Today&apos;s Shield Report</Text>
           <View style={{ flex: 1 }} />
-          <StatusPill label={c.monitoring ? c.passiveTracking ? 'Passive' : 'Tracking' : 'Paused'} bg="#ffd8eb" fg="#402334" />
+          <StatusPill label={c.monitoring ? c.silentTracking ? 'Silent' : 'Tracking' : 'Paused'} bg="#ffd8eb" fg="#402334" />
         </View>
         <View style={[styles.row, { alignItems: 'flex-end', marginTop: 12 }]}>
           <Text style={styles.bigCount}>{c.todayCount}</Text>

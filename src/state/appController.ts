@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import type { Device } from 'react-native-ble-plx';
 
 import {
@@ -14,6 +15,8 @@ import {
   formatBleError,
   isOurWatch,
 } from '../services/bleTwitchDevice';
+import { ensureNotificationPermission, fireDetectionNotification } from '../services/notificationService';
+import { DEFAULT_SOUND_ID } from '../services/soundLibrary';
 import {
   DeviceConnection,
   DeviceMode,
@@ -78,6 +81,9 @@ export class AppController {
   profiles: BehaviorProfile[] = [];
   activeProfileId: string | null = null;
 
+  /** Background local-notification alerts; independent of silent tracking. */
+  private _passiveModeEnabled = false;
+
   // ---- Activity log -------------------------------------------------------
   private log = new Map<string, DayLog>();
   recentEvents: TwitchEvent[] = [];
@@ -101,8 +107,11 @@ export class AppController {
   get isConnected(): boolean {
     return this.connection === DeviceConnection.connected;
   }
-  get passiveTracking(): boolean {
+  get silentTracking(): boolean {
     return !this.alerts.enabled;
+  }
+  get passiveMode(): boolean {
+    return this._passiveModeEnabled;
   }
   get deviceName(): string {
     return this.device?.name ?? 'No device';
@@ -126,6 +135,8 @@ export class AppController {
     await this.loadLog();
     this.alerts.enabled = (await getBool('alertEnabled')) ?? true;
     this.alerts.soundEnabled = (await getBool('soundEnabled')) ?? false;
+    this.alerts.soundId = (await AsyncStorage.getItem('alertSoundId')) ?? DEFAULT_SOUND_ID;
+    this._passiveModeEnabled = (await getBool('passiveModeEnabled')) ?? false;
     this.notify();
   }
 
@@ -385,14 +396,36 @@ export class AppController {
     if (this.isConnected) await this.device?.setAlertEnabled(enabled);
   }
 
-  setPassiveTracking(passive: boolean): Promise<void> {
-    return this.setAlertsEnabled(!passive);
+  setSilentTracking(silent: boolean): Promise<void> {
+    return this.setAlertsEnabled(!silent);
   }
 
   async setSoundEnabled(enabled: boolean): Promise<void> {
     this.alerts.soundEnabled = enabled;
     this.notify();
     await AsyncStorage.setItem('soundEnabled', enabled ? '1' : '0');
+  }
+
+  async setAlertSoundId(id: string): Promise<void> {
+    this.alerts.soundId = id;
+    this.notify();
+    await AsyncStorage.setItem('alertSoundId', id);
+  }
+
+  /**
+   * Turning this on requests notification permission (returns a user-facing
+   * error string on denial, like `connectToWatch`). Independent of silent
+   * tracking: it fires regardless of whether vibration/sound are muted.
+   */
+  async setPassiveMode(enabled: boolean): Promise<string | null> {
+    if (enabled) {
+      const error = await ensureNotificationPermission();
+      if (error != null) return error;
+    }
+    this._passiveModeEnabled = enabled;
+    this.notify();
+    await AsyncStorage.setItem('passiveModeEnabled', enabled ? '1' : '0');
+    return null;
   }
 
   // =========================================================================
@@ -411,6 +444,11 @@ export class AppController {
     this.log.set(key, day);
 
     void this.alerts.trigger();
+    if (this._passiveModeEnabled && AppState.currentState !== 'active') {
+      void fireDetectionNotification(this.activeProfile?.name).catch((err) =>
+        console.warn('Could not fire passive-mode notification:', err),
+      );
+    }
     void this.saveLog();
     this.notify();
   }

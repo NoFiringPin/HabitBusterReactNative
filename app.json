@@ -64,6 +64,13 @@
         {
           "backgroundColor": "#f4fff9"
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#f4fff9"
+        }
       ]
     ],
     "extra": {

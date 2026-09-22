@@ -79,6 +79,38 @@ After this SDK/native BLE upgrade, install a newly built development client on
 the phone once. Fast Refresh can update JavaScript after that, but it cannot
 replace the native BLE module inside an older installed client.
 
+## Passive tracking and phone sound
+
+In **Device & Behaviors**, choose a calibrated behavior, turn on **Passive
+tracking**, and tap **Start passive tracking**. Detections still update today's
+count and history, but automatic phone vibration, sound, and the watch's red
+alert light are muted. Its normal status light stays on. You can move between
+app screens without stopping the session; use **Pause tracking** to stop.
+Opening the live monitor only displays the session; use its Start button if
+tracking is paused. Starting calibration pauses the tracking session too.
+
+Turn passive tracking off to restore vibration/watch alerts. **Phone sound**
+optionally adds one short chime per detection; it defaults off. **Test sound**
+and **Test vibration** play once even in passive mode, without changing your
+preferences. Sound uses the phone's current audio output and volume, respects
+silent mode, and mixes with other audio. No microphone permission is requested.
+
+This simple version records events while the app is running and receiving BLE
+data. Keep the app open and the watch connected; background/locked-phone
+tracking and recovery of events missed while disconnected are not guaranteed.
+A disconnect or app restart ends the session: reconnect and start tracking
+again. Preferences are saved and sent to the watch on reconnect. If the watch
+reboots while disconnected, its existing firmware defaults apply until then.
+
+The new `expo-audio` dependency requires a **new development build** once;
+Fast Refresh cannot add its native module to an existing build. No new firmware
+is needed for these controls (`ALERT 0/1` is already supported).
+
+Quick physical check: start passive tracking, cause a detection, and confirm
+the count rises without alerts. Return to the dashboard and repeat. Turn passive
+off, enable Phone sound, test the chime, and detect again. Pause and confirm
+counting stops. Reconnect and confirm the passive/sound preferences are retained.
+
 ## Building for iOS from Windows (EAS Build)
 
 The project uses **Expo SDK 57**. EAS selects the SDK-compatible Xcode image for

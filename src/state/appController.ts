@@ -101,6 +101,9 @@ export class AppController {
   get isConnected(): boolean {
     return this.connection === DeviceConnection.connected;
   }
+  get passiveTracking(): boolean {
+    return !this.alerts.enabled;
+  }
   get deviceName(): string {
     return this.device?.name ?? 'No device';
   }
@@ -122,6 +125,7 @@ export class AppController {
     await this.loadProfiles();
     await this.loadLog();
     this.alerts.enabled = (await getBool('alertEnabled')) ?? true;
+    this.alerts.soundEnabled = (await getBool('soundEnabled')) ?? false;
     this.notify();
   }
 
@@ -233,7 +237,10 @@ export class AppController {
     this.device = next;
     this.connSub = next.onConnection((c) => {
       this.connection = c;
-      if (c === DeviceConnection.disconnected) this.monitoring = false;
+      if (c === DeviceConnection.disconnected) {
+        this.monitoring = false;
+        this.alerts.stop();
+      }
       this.notify();
     });
     this.sampleSub = next.onSample((s) => {
@@ -245,6 +252,7 @@ export class AppController {
   }
 
   private async detach(): Promise<void> {
+    this.alerts.stop();
     this.connSub?.();
     this.sampleSub?.();
     this.eventSub?.();
@@ -262,13 +270,23 @@ export class AppController {
   }
 
   async connect(options?: DeviceConnectOptions): Promise<void> {
-    await this.device?.connect(options);
-    // Re-push the active profile so the device is ready to run standalone.
-    const active = this.activeProfile;
-    if (active != null) await this.device?.pushProfile(active);
+    try {
+      await this.device?.connect(options);
+      // Restore silent/alert mode on every connection, including after a reboot.
+      await this.device?.setAlertEnabled(this.alerts.enabled);
+      await this.device?.setMode(DeviceMode.idle);
+      this.monitoring = false;
+      const active = this.activeProfile;
+      if (active != null) await this.device?.pushProfile(active);
+    } catch (error) {
+      // Don't leave a link marked ready when its alert preference wasn't applied.
+      await this.device?.disconnect();
+      throw error;
+    }
   }
 
   async disconnect(): Promise<void> {
+    this.alerts.stop();
     this.connectionStatus = 'Disconnecting…';
     this.notify();
     await this.device?.disconnect();
@@ -286,18 +304,27 @@ export class AppController {
   // =========================================================================
 
   async enterCalibration(): Promise<void> {
+    this.monitoring = false;
+    this.alerts.stop();
+    this.notify();
     await this.device?.setMode(DeviceMode.calibrate);
   }
 
   async startMonitoring(): Promise<void> {
+    if (this.monitoring) return;
     const active = this.activeProfile;
-    if (active != null) await this.device?.pushProfile(active);
+    if (!this.isConnected || this.device == null || active == null) {
+      throw new Error('Connect your watch and choose a calibrated behavior first.');
+    }
+    await this.device.pushProfile(active);
+    await this.device.setAlertEnabled(this.alerts.enabled);
     await this.device?.setMode(DeviceMode.run);
     this.monitoring = true;
     this.notify();
   }
 
   async stopMonitoring(): Promise<void> {
+    this.alerts.stop();
     await this.device?.setMode(DeviceMode.idle);
     this.monitoring = false;
     this.notify();
@@ -353,9 +380,19 @@ export class AppController {
 
   async setAlertsEnabled(enabled: boolean): Promise<void> {
     this.alerts.enabled = enabled;
-    await AsyncStorage.setItem('alertEnabled', enabled ? '1' : '0');
-    await this.device?.setAlertEnabled(enabled);
     this.notify();
+    await AsyncStorage.setItem('alertEnabled', enabled ? '1' : '0');
+    if (this.isConnected) await this.device?.setAlertEnabled(enabled);
+  }
+
+  setPassiveTracking(passive: boolean): Promise<void> {
+    return this.setAlertsEnabled(!passive);
+  }
+
+  async setSoundEnabled(enabled: boolean): Promise<void> {
+    this.alerts.soundEnabled = enabled;
+    this.notify();
+    await AsyncStorage.setItem('soundEnabled', enabled ? '1' : '0');
   }
 
   // =========================================================================
@@ -363,6 +400,8 @@ export class AppController {
   // =========================================================================
 
   private onEvent(e: TwitchEvent): void {
+    // Paused sessions and calibration previews do not count as daily activity.
+    if (!this.monitoring) return;
     this.recentEvents = [e, ...this.recentEvents].slice(0, 50);
 
     const key = dayKey(new Date(e.time));

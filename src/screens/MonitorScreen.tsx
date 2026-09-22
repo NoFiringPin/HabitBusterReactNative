@@ -1,6 +1,5 @@
-import { useNavigation } from '@react-navigation/native';
-import React, { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppCard, ScreenScrollView } from '../components/ui';
 import { appController } from '../state/appController';
@@ -15,14 +14,16 @@ import { AppColors } from '../theme';
 export function MonitorScreen() {
   const c = useAppController();
 
-  useEffect(() => {
-    if (appController.isConnected && appController.activeProfile != null) {
-      void appController.startMonitoring();
-    }
-    return () => {
-      if (appController.monitoring) void appController.stopMonitoring();
-    };
-  }, []);
+  const [busy, setBusy] = useState(false);
+
+  // Tracking belongs to the controller and continues across screen changes.
+  async function updateTracking(action: () => Promise<void>) {
+    setBusy(true);
+    try { await action(); }
+    catch (error) {
+      Alert.alert('Could not update tracking', error instanceof Error ? error.message : String(error));
+    } finally { setBusy(false); }
+  }
 
   const active = c.activeProfile;
   if (active == null) {
@@ -57,7 +58,7 @@ export function MonitorScreen() {
         </View>
         <Text style={styles.watching}>Watching: {active.name}</Text>
         <Text style={styles.sub}>
-          {c.monitoring ? 'Detection running on the watch' : 'Paused'}
+          {c.monitoring ? c.passiveTracking ? 'Passive tracking · alerts silent' : 'Tracking with alerts' : 'Paused'}
         </Text>
       </View>
 
@@ -88,10 +89,9 @@ export function MonitorScreen() {
       <View style={[styles.row, { marginTop: 16 }]}>
         <View style={{ flex: 1 }}>
           <Pressable
+            disabled={busy || !c.isConnected}
             onPress={() =>
-              c.monitoring
-                ? void appController.stopMonitoring()
-                : void appController.startMonitoring()
+              void updateTracking(() => c.monitoring ? c.stopMonitoring() : c.startMonitoring())
             }
             style={[styles.ctrlBtn, { backgroundColor: c.monitoring ? '#b0b7c3' : AppColors.green }]}
           >
@@ -102,12 +102,17 @@ export function MonitorScreen() {
         </View>
         <View style={{ width: 12 }} />
         <Pressable
-          onPress={() => void appController.setAlertsEnabled(!c.alerts.enabled)}
+          disabled={busy}
+          accessibilityRole="switch"
+          accessibilityLabel="Passive tracking"
+          accessibilityState={{ checked: c.passiveTracking, disabled: busy }}
+          onPress={() => void updateTracking(() => c.setPassiveTracking(!c.passiveTracking))}
           style={styles.alertToggle}
         >
           <Text style={{ fontSize: 20 }}>{c.alerts.enabled ? '🔔' : '🔕'}</Text>
         </Pressable>
       </View>
+      <Text style={[styles.sub, { marginTop: 8 }]}>Tracking continues when you leave this screen. Keep the app open and the watch connected.</Text>
 
       {/* Event feed */}
       <AppCard style={{ marginTop: 16 }}>

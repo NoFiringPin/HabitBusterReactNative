@@ -17,6 +17,7 @@
     "base64-js": "^1.5.1",
     "expo": "^57.0.17",
     "expo-asset": "~57.0.17",
+    "expo-audio": "~57.0.5",
     "expo-dev-client": "~57.0.19",
     "expo-haptics": "~57.0.3",
     "expo-splash-screen": "~57.0.9",

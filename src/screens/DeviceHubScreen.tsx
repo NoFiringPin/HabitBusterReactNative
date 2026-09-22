@@ -1,5 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
-import React from 'react';
+import React, { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { AppCard, OutlineButton, PrimaryButton, ScreenScrollView, StatusPill } from '../components/ui';
@@ -17,6 +17,23 @@ import type { Nav } from '../navigation';
 export function DeviceHubScreen() {
   const c = useAppController();
   const nav = useNavigation<Nav<'DeviceHub'>>();
+  const [busy, setBusy] = useState(false);
+
+  async function updateTracking(action: () => Promise<void>) {
+    setBusy(true);
+    try { await action(); }
+    catch (error) {
+      Alert.alert('Could not update tracking', error instanceof Error ? error.message : String(error));
+    } finally { setBusy(false); }
+  }
+
+  async function testSound() {
+    setBusy(true);
+    try { await c.alerts.testSound(); }
+    catch (error) {
+      Alert.alert('Could not play sound', error instanceof Error ? error.message : String(error));
+    } finally { setBusy(false); }
+  }
 
   const connected = c.isConnected;
   const connecting = c.connection === DeviceConnection.connecting || c.searching;
@@ -157,34 +174,65 @@ export function DeviceHubScreen() {
       <View style={{ height: 18 }} />
       <PrimaryButton
         label={
-          canMonitor
-            ? 'Start live monitoring'
+          c.monitoring
+            ? 'Pause tracking'
+            : canMonitor
+              ? c.passiveTracking ? 'Start passive tracking' : 'Start tracking with alerts'
             : c.isConnected
               ? 'Pick a behavior to monitor'
               : 'Connect a device to monitor'
         }
         color={AppColors.blue}
-        disabled={!canMonitor}
-        onPress={() => nav.navigate('Monitor')}
+        disabled={busy || (!canMonitor && !c.monitoring)}
+        onPress={() => void updateTracking(() => c.monitoring ? c.stopMonitoring() : c.startMonitoring())}
       />
+      <Text style={[styles.sub, { marginTop: 8 }]}>
+        {c.monitoring
+          ? c.passiveTracking ? 'Tracking silently. You can leave this screen.' : 'Tracking with alerts. You can leave this screen.'
+          : 'Tracking paused.'}
+        {' Keep the app open and the watch connected to record events.'}
+      </Text>
+      <View style={{ height: 8 }} />
+      <OutlineButton label="Open live monitor" disabled={!canMonitor} onPress={() => nav.navigate('Monitor')} />
 
       <View style={{ height: 12 }} />
       <AppCard>
         <View style={styles.row}>
           <Text style={{ fontSize: 20, marginRight: 12 }}>
-            {c.alerts.enabled ? '🔊' : '🔇'}
+            {c.passiveTracking ? '🔇' : '🔔'}
           </Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.behaviorName}>Annoying alert</Text>
-            <Text style={styles.sub}>Vibrate the phone when a twitch is caught.</Text>
+            <Text style={styles.behaviorName}>Passive tracking</Text>
+            <Text style={styles.sub}>Count habits without vibration, sound, or the watch&apos;s red alert light.</Text>
           </View>
           <Switch
-            value={c.alerts.enabled}
+            value={c.passiveTracking}
+            disabled={busy}
+            accessibilityLabel="Passive tracking"
             trackColor={{ true: AppColors.green }}
-            onValueChange={(v) => void appController.setAlertsEnabled(v)}
+            onValueChange={(v) => void updateTracking(() => c.setPassiveTracking(v))}
           />
         </View>
+        <Text style={[styles.sub, { marginTop: 8 }]}>Turn off passive tracking for vibration and watch alerts.</Text>
+        <View style={[styles.row, { marginTop: 14 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.behaviorName}>Phone sound</Text>
+            <Text style={styles.sub}>
+              {c.passiveTracking ? 'Muted during passive tracking.' : 'Add a short chime when a habit is detected.'}
+            </Text>
+          </View>
+          <Switch
+            value={c.alerts.soundEnabled}
+            disabled={busy || c.passiveTracking}
+            accessibilityLabel="Phone sound alerts"
+            trackColor={{ true: AppColors.green }}
+            onValueChange={(v) => void updateTracking(() => c.setSoundEnabled(v))}
+          />
+        </View>
+        <Text style={[styles.sub, { marginTop: 8 }]}>Sound follows your phone&apos;s volume and silent mode. Test buttons play once, even in passive mode.</Text>
         <View style={{ height: 10 }} />
+        <OutlineButton label="Test sound" disabled={busy} onPress={() => void testSound()} />
+        <View style={{ height: 8 }} />
         <OutlineButton
           label="Test vibration"
           onPress={() => appController.testAlert()}

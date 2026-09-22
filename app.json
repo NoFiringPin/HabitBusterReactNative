@@ -49,6 +49,15 @@
         }
       ],
       "expo-asset",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
       "expo-status-bar",
       [
         "expo-splash-screen",

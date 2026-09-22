@@ -1,32 +1,45 @@
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import { Vibration } from 'react-native';
 
-/**
- * Fires the "annoying" feedback on the phone when the wearable reports a
- * twitch: a burst of vibration. Ported from `lib/services/alert_service.dart`.
- *
- * This intentionally lives on the phone (which has a vibration motor) rather
- * than the wearable, whose only output is the NeoPixel. Expo Haptics has no
- * system-tone API, so the audible tone from the Flutter version is dropped for
- * now; swap in an `expo-av` clip here to make it louder/customizable later.
- */
+/** Phone feedback. Passive tracking disables both vibration and sound. */
 export class AlertService {
   private burst: ReturnType<typeof setInterval> | null = null;
-  enabled = true;
+  private player: AudioPlayer | null = null;
+  private soundGeneration = 0;
+  private _enabled = true;
+  private _soundEnabled = false;
+
+  get enabled(): boolean { return this._enabled; }
+  set enabled(value: boolean) {
+    this._enabled = value;
+    if (!value) this.stop();
+  }
+
+  get soundEnabled(): boolean { return this._soundEnabled; }
+  set soundEnabled(value: boolean) {
+    this._soundEnabled = value;
+    if (!value) this.stopSound();
+  }
 
   async trigger(): Promise<void> {
     if (!this.enabled) return;
     this.buzz();
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     let count = 0;
     if (this.burst != null) clearInterval(this.burst);
     this.burst = setInterval(() => {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       if (++count >= 6 && this.burst != null) {
         clearInterval(this.burst);
         this.burst = null;
       }
     }, 300);
+    if (this.soundEnabled) {
+      // An unavailable audio route must never interrupt event counting.
+      try { await this.playSound(); }
+      catch (error) { console.warn('Could not play the habit alert:', error); }
+    }
   }
 
   /**
@@ -42,7 +55,52 @@ export class AlertService {
   /** Fire a one-off test buzz regardless of the enabled flag (for a UI test). */
   test(): void {
     this.buzz();
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  }
+
+  /** Explicit test bypasses preferences without changing tracking mode. */
+  testSound(): Promise<void> {
+    return this.playSound();
+  }
+
+  private async playSound(): Promise<void> {
+    const generation = ++this.soundGeneration;
+    await setAudioModeAsync({
+      playsInSilentMode: false,
+      shouldPlayInBackground: false,
+      interruptionMode: 'mixWithOthers',
+    });
+    if (generation !== this.soundGeneration) return;
+    const player = this.player ??= createAudioPlayer(require('../../assets/alert.wav'));
+    if (!player.isLoaded) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          sub.remove();
+          reject(new Error('Sound could not load. Try again after restarting the app.'));
+        }, 5000);
+        const sub = player.addListener('playbackStatusUpdate', (status) => {
+          if (status.isLoaded) {
+            clearTimeout(timer);
+            sub.remove();
+            resolve();
+          }
+        });
+        if (player.isLoaded) {
+          clearTimeout(timer);
+          sub.remove();
+          resolve();
+        }
+      });
+    }
+    if (generation !== this.soundGeneration) return;
+    await player.seekTo(0);
+    if (generation !== this.soundGeneration) return;
+    player.play();
+  }
+
+  private stopSound(): void {
+    this.soundGeneration++;
+    this.player?.pause();
   }
 
   /** Stop an in-progress alert burst (e.g. the user acknowledged it). */
@@ -50,9 +108,12 @@ export class AlertService {
     if (this.burst != null) clearInterval(this.burst);
     this.burst = null;
     Vibration.cancel();
+    this.stopSound();
   }
 
   dispose(): void {
     this.stop();
+    this.player?.remove();
+    this.player = null;
   }
 }

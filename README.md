@@ -58,16 +58,22 @@ npm start                    # expo start --dev-client
 
 ## Reliable watch connection
 
-When CircuitPython prints `Advertising as 'FaceDefense' (name+service)`, the
-watch is ready. Connect from **HabitBuster's “Find my watch” button**, not from
+The watch starts advertising on power-up without Mu or a serial console. Its
+UART UUID and `FaceDefense` name use separate advertising/scan-response packets.
+Connect from **HabitBuster's “Find my watch” button**, not from
 the phone's Bluetooth Settings pairing screen; Nordic UART is discovered and
 opened directly by the app.
 
 The app waits for the phone's Bluetooth stack to become ready, recovers stale
-OS connections, scans using both the `FaceDefense` name and UART service UUID,
+watch connections, filters by UART service and requires the `FaceDefense` name,
 retries failed GATT connections three times, and verifies the finished link
 with `PING`/`PONG` before showing it as connected. If a connection still fails,
 the displayed BLE/Android/iOS error code is the useful diagnostic to capture.
+
+Other Adafruit devices sharing Nordic UART are not auto-selected by service
+alone. Keep their different names. Follow the [cold-start and reconnect
+checks](firmware/README.md#cold-start-acceptance-check-physical-hardware) after
+copying the updated firmware to the board and loading the updated app.
 
 After this SDK/native BLE upgrade, install a newly built development client on
 the phone once. Fast Refresh can update JavaScript after that, but it cannot

@@ -222,7 +222,7 @@ function readinessForState(
 /** Whether a scanned name looks like our wearable. */
 export function isWatchName(name: string | null | undefined): boolean {
   if (!name) return false;
-  return name.toLowerCase().startsWith(UartProtocol.deviceName.toLowerCase());
+  return name.trim().toLowerCase() === UartProtocol.deviceName.toLowerCase();
 }
 
 /** The advertised-service shape we care about (a subset of ble-plx's Device). */
@@ -233,17 +233,12 @@ export interface ScannedLike {
 }
 
 /**
- * Whether a scan result is our wearable — matched by name OR by the Nordic UART
- * service UUID in its advertisement. The UUID match matters on iOS, where a
- * peripheral can advertise the service without a readable name in the initial
- * packet (which would otherwise make the watch invisible).
+ * NUS is shared by many Adafruit projects; it is not a watch identity. Wait for
+ * the name scan response before auto-selecting a device. Prefer the advertised
+ * localName over the OS name, which may be cached from another sketch.
  */
 export function isOurWatch(device: ScannedLike): boolean {
-  if (isWatchName(device.name) || isWatchName(device.localName)) return true;
-  const svcs = device.serviceUUIDs ?? [];
-  return svcs.some(
-    (u) => u.toLowerCase() === UartProtocol.service.toLowerCase(),
-  );
+  return isWatchName(device.localName?.trim() || device.name);
 }
 
 /**
@@ -275,9 +270,7 @@ export class BleTwitchDevice implements TwitchDevice {
   }
 
   get name(): string {
-    return this.device.name && this.device.name.length > 0
-      ? this.device.name
-      : this.device.localName ?? 'Wearable';
+    return this.device.localName?.trim() || this.device.name || 'Wearable';
   }
 
   get connection(): DeviceConnection {
@@ -438,14 +431,17 @@ export class BleTwitchDevice implements TwitchDevice {
 
   /**
    * Prove both UART directions before reporting the device as connected. The
-   * firmware answers PING with PONG and also streams DAT, so any complete line
-   * confirms that notifications and writes are actually working.
+   * firmware must answer our PING with PONG. Unsolicited DAT/HELLO or text from
+   * another UART project does not prove the command channel works.
    */
   private async verifyUart(): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let confirmed = false;
+    let active = true;
+    let pingSent = false;
     const notification = new Promise<void>((resolve, reject) => {
       this.handshakeResolve = () => {
+        if (!pingSent) return;
         confirmed = true;
         resolve();
       };
@@ -460,14 +456,18 @@ export class BleTwitchDevice implements TwitchDevice {
       const pingLoop = async () => {
         // Notification subscription setup is asynchronous on both platforms.
         // Repeating PING covers one sent just before notifications became live.
-        for (let attempt = 0; attempt < 2 && !confirmed; attempt++) {
+        for (let attempt = 0; attempt < 4 && active && !confirmed; attempt++) {
           await delay(attempt === 0 ? 150 : 450);
-          if (!confirmed) await this.write(UartProtocol.ping);
+          if (active && !confirmed) {
+            pingSent = true;
+            await this.write(UartProtocol.ping);
+          }
         }
       };
       // Awaiting both immediately installs a rejection handler on the monitor.
       await Promise.all([notification, pingLoop()]);
     } finally {
+      active = false;
       if (timer != null) clearTimeout(timer);
       this.handshakeResolve = null;
       this.handshakeReject = null;
@@ -479,7 +479,7 @@ export class BleTwitchDevice implements TwitchDevice {
     let nl = this.rxBuffer.indexOf('\n');
     while (nl >= 0) {
       const line = this.rxBuffer.substring(0, nl);
-      if (line.trim().length > 0) this.handshakeResolve?.();
+      if (line.trim() === 'PONG') this.handshakeResolve?.();
       const parsed = UartProtocol.parseLine(line);
       if (isSample(parsed)) this.sampleEmitter.emit(parsed);
       else if (isEvent(parsed)) this.eventEmitter.emit(parsed);

@@ -45,7 +45,7 @@
 #  ----------
 #   1. Flash this as code.py, copy the libraries above into /lib.
 #   2. Open the FaceDefense app, go to Device & Behaviors -> Connect a device,
-#      and pick this watch (it advertises as "CIRCUITPYxxxx" or similar).
+#      and pick this watch (it advertises as "FaceDefense").
 #   3. Add a behavior and follow the calibration wizard. The app measures you
 #      and pushes a profile; the watch starts detecting.
 # ============================================================================
@@ -65,13 +65,14 @@ except ImportError:
 from adafruit_lsm6ds.lsm6dsox import LSM6DSOX
 
 from adafruit_ble import BLERadio
+from adafruit_ble.advertising import Advertisement
 from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
 from adafruit_ble.services.nordic import UARTService
 
-FW_VERSION = 1
+FW_VERSION = 2
 
 # The app finds the watch by this exact name (single-tap connect, no hunting).
-# Must match `UartProtocol.deviceName` in the Flutter app.
+# Must match `UartProtocol.deviceName` in src/services/twitchDevice.ts.
 DEVICE_NAME = "FaceDefense"
 
 # ============================================================================
@@ -161,25 +162,12 @@ pixel = neopixel.NeoPixel(board.NEOPIXEL, 1,
                           brightness=LED_BRIGHTNESS, auto_write=True)
 
 
-def blink_forever(color):
-    while True:
-        pixel[0] = color
-        time.sleep(0.3)
-        pixel[0] = (0, 0, 0)
-        time.sleep(0.3)
-
-
-try:
-    i2c = board.STEMMA_I2C()
-except AttributeError:
-    i2c = board.I2C()
-
-try:
-    imu = LSM6DSOX(i2c)
-except Exception as e:  # noqa: broad on purpose for a clear signal
-    print("Could not find LSM6DSOX -- check the STEMMA QT cable / address.")
-    print("Error:", e)
-    blink_forever(COLOR_ERROR)
+# Start Bluetooth even when the sensor is still powering up. A failed first
+# I2C probe must not require a serial-console reload to make the watch visible.
+i2c = None
+imu = None
+next_sensor_retry = 0.0
+sensor_error_printed = False
 
 
 # ============================================================================
@@ -278,23 +266,16 @@ ble = BLERadio()
 ble.name = DEVICE_NAME
 uart = UARTService()
 
-# Two advertisements: one with the name embedded, and a service-only fallback.
-# A 128-bit service UUID (16 B) plus the name "FaceDefense" can exceed the
-# 31-byte BLE advertising limit on some radios (notably the QT Py ESP32-S3).
-# When it does, start_advertising() raises -- previously that was swallowed
-# silently, so the watch never advertised and never said so. Now we fall back
-# to advertising the service alone, which always fits. The app finds the watch
-# by the UART service UUID either way.
+# Flags + NUS UUID take 21 bytes; adding the full name would take 34 (>31).
+# Keep the service in the advertisement and the name in the scan response.
+# Neither packet depends on a previous phone cache or a serial connection.
 advertisement = ProvideServicesAdvertisement(uart)
-try:
-    advertisement.complete_name = DEVICE_NAME
-except Exception:  # noqa: name didn't fit; the fallback below covers it
-    pass
-advertisement_min = ProvideServicesAdvertisement(uart)
+scan_response = Advertisement()
+scan_response.complete_name = DEVICE_NAME
 
-advertising = False
 was_connected = False
 adv_error_printed = False
+next_adv_retry = 0.0
 
 print("Twitch Watch (BLE) starting. fw =", FW_VERSION, " mode =", mode)
 
@@ -308,36 +289,31 @@ while True:
 
     # --- 0) Manage the BLE link without stalling detection ------------------
     if ble.connected:
-        if advertising:
+        if ble.advertising:
             try:
                 ble.stop_advertising()
             except Exception:  # noqa
                 pass
-            advertising = False
         if not was_connected:
             was_connected = True
             rx_buffer = ""
             send("HELLO fw={} mode={}".format(FW_VERSION, mode))
     else:
         was_connected = False
-        if not advertising:
+        rx_buffer = ""
+        # Read the radio state rather than a local flag: a brief connection can
+        # stop advertising and disconnect again between two loop iterations.
+        if not ble.advertising and now >= next_adv_retry:
             try:
-                ble.start_advertising(advertisement)
-                advertising = True
+                ble.start_advertising(advertisement, scan_response=bytes(scan_response))
                 adv_error_printed = False
-                print("Advertising as '{}' (name+service) - waiting for app"
+                print("Advertising as '{}' (service + name scan response) - waiting for app"
                       .format(DEVICE_NAME))
-            except Exception as e:  # noqa: packet too big / radio busy
-                # Retry advertising the service only (always fits in 31 bytes).
-                try:
-                    ble.start_advertising(advertisement_min)
-                    advertising = True
-                    adv_error_printed = False
-                    print("Advertising (service only, unnamed) - waiting for app")
-                except Exception as e2:  # noqa
-                    if not adv_error_printed:
-                        print("start_advertising FAILED:", e, "|", e2)
-                        adv_error_printed = True
+            except Exception as e:  # noqa: radio may still be busy after disconnect
+                next_adv_retry = now + 1.0
+                if not adv_error_printed:
+                    print("start_advertising FAILED (retrying):", e)
+                    adv_error_printed = True
 
     # --- 1) Drain any incoming commands (newline-delimited) -----------------
     if ble.connected and uart.in_waiting:
@@ -347,11 +323,42 @@ while True:
             rx_buffer = ""
         while "\n" in rx_buffer:
             line, rx_buffer = rx_buffer.split("\n", 1)
-            handle_command(line)
+            try:
+                handle_command(line)
+            except (ValueError, OverflowError) as e:
+                print("Invalid command:", e)
 
     # --- 2) Read the sensor -------------------------------------------------
-    ax, ay, az = imu.acceleration
-    gx, gy, gz = imu.gyro
+    if imu is None and now >= next_sensor_retry:
+        next_sensor_retry = now + 1.0
+        try:
+            if i2c is None:
+                try:
+                    i2c = board.STEMMA_I2C()
+                except AttributeError:
+                    i2c = board.I2C()
+            imu = LSM6DSOX(i2c)
+            sensor_error_printed = False
+        except Exception as e:
+            if not sensor_error_printed:
+                print("LSM6DSOX unavailable (retrying) -- check STEMMA QT:", e)
+                sensor_error_printed = True
+    if imu is None:
+        pixel[0] = COLOR_ERROR if int(now / 0.3) % 2 == 0 else (0, 0, 0)
+        time.sleep(LOOP_DELAY)
+        continue
+    try:
+        ax, ay, az = imu.acceleration
+        gx, gy, gz = imu.gyro
+    except OSError as e:
+        print("Sensor read failed (retrying):", e)
+        imu = None
+        grav_x = grav_y = grav_z = None
+        motion = 0.0
+        set_mode(mode)
+        next_sensor_retry = now + 1.0
+        time.sleep(LOOP_DELAY)
+        continue
 
     # --- 3) Orientation -----------------------------------------------------
     if grav_x is None:

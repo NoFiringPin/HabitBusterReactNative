@@ -78,7 +78,10 @@ export function ScanScreen() {
       (d) => {
         // Show named devices, plus any device advertising our UART service even
         // if it comes through unnamed (common for the watch on iOS).
-        if (!d.name && !d.localName && !isOurWatch(d)) return;
+        const hasUart = d.serviceUUIDs?.some(
+          (uuid) => uuid.toLowerCase() === UartProtocol.service,
+        );
+        if (!d.name && !d.localName && !hasUart) return;
         setDevices((prev) => {
           const next = { ...prev, [d.id]: d };
           deviceCountRef.current = Object.keys(next).length;
@@ -136,7 +139,7 @@ export function ScanScreen() {
   return (
     <ScreenScrollView>
       <Text style={styles.heading}>Nearby Bluetooth devices</Text>
-      <Text style={styles.sub}>Your wearable advertises as a Nordic UART device.</Text>
+      <Text style={styles.sub}>Choose FaceDefense. Other Adafruit UART devices may belong to your other apps.</Text>
 
       {error && (
         <AppCard style={{ marginTop: 10 }} borderColor="#ffc9d7" color="#fff2f6">
@@ -163,7 +166,7 @@ export function ScanScreen() {
                 <Text style={{ fontSize: 22, marginRight: 12 }}>⌚</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.deviceName}>
-                    {r.name ?? r.localName ?? (isWatch ? 'FaceDefense watch' : 'Unnamed device')}
+                    {r.localName || r.name || 'Unnamed UART device'}
                   </Text>
                   <Text style={styles.sub}>
                     {isWatch ? 'Your watch · ' : ''}signal {r.rssi ?? '?'} dBm

@@ -65,6 +65,7 @@
           "backgroundColor": "#f4fff9"
         }
       ],
+      "./plugins/with-local-notifications-only.js",
       [
         "expo-notifications",
         {

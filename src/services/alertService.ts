@@ -1,4 +1,5 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
+import { Asset } from 'expo-asset';
 import * as Haptics from 'expo-haptics';
 import { Vibration } from 'react-native';
 
@@ -82,40 +83,66 @@ export class AlertService {
     const generation = ++this.soundGeneration;
     await setAudioModeAsync({
       playsInSilentMode: true,
+      allowsRecording: false,
+      shouldRouteThroughEarpiece: false,
       shouldPlayInBackground: false,
       interruptionMode: 'mixWithOthers',
     });
     if (generation !== this.soundGeneration) return;
+    let isNewPlayer = false;
     if (this.player == null || this.playerSoundId !== this._soundId) {
+      // Metro serves require() assets over HTTP in development. Cache the whole
+      // file before giving it to AVPlayer, especially for the short WAV chime.
+      const asset = Asset.fromModule(soundById(this._soundId).source);
+      await asset.downloadAsync();
+      if (generation !== this.soundGeneration) return;
       this.player?.remove();
-      this.player = createAudioPlayer(soundById(this._soundId).source);
+      this.player = createAudioPlayer({ uri: asset.localUri ?? asset.uri });
       this.playerSoundId = this._soundId;
+      isNewPlayer = true;
     }
     const player = this.player;
-    if (!player.isLoaded) {
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          sub.remove();
-          reject(new Error('Sound could not load. Try again after restarting the app.'));
-        }, 5000);
-        const sub = player.addListener('playbackStatusUpdate', (status) => {
-          if (status.isLoaded) {
+    try {
+      // currentStatus also treats Android's completed player as loaded, allowing
+      // replay to reach seekTo() instead of waiting forever for another load.
+      if (!player.currentStatus.isLoaded) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            sub.remove();
+            reject(new Error('Sound could not load. Try again after restarting the app.'));
+          }, 5000);
+          const sub = player.addListener('playbackStatusUpdate', (status) => {
+            if (status.error || status.isLoaded) {
+              clearTimeout(timer);
+              sub.remove();
+              if (status.error) reject(new Error(status.error));
+              else resolve();
+            }
+          });
+          const status = player.currentStatus;
+          if (status.error || status.isLoaded) {
             clearTimeout(timer);
             sub.remove();
-            resolve();
+            if (status.error) reject(new Error(status.error));
+            else resolve();
           }
         });
-        if (player.isLoaded) {
-          clearTimeout(timer);
-          sub.remove();
-          resolve();
-        }
-      });
+      }
+      if (generation !== this.soundGeneration) return;
+      // A new player already starts at zero; only seek when replaying it.
+      if (!isNewPlayer) await player.seekTo(0, 0, 0);
+      if (generation !== this.soundGeneration) return;
+      player.muted = false;
+      player.volume = 1;
+      player.play();
+    } catch (error) {
+      if (generation !== this.soundGeneration) return;
+      // A failed native player cannot recover just by pressing Test again.
+      player.remove();
+      this.player = null;
+      this.playerSoundId = null;
+      throw error;
     }
-    if (generation !== this.soundGeneration) return;
-    await player.seekTo(0);
-    if (generation !== this.soundGeneration) return;
-    player.play();
   }
 
   private stopSound(): void {

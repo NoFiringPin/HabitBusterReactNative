@@ -7,7 +7,11 @@ const ts = require('typescript');
 
 function fixture({ notifGranted = true } = {}) {
   const stored = new Map();
-  const calls = { buzz: 0, plays: 0, seeks: 0, players: 0, modes: [], alerts: [], notifications: [] };
+  const calls = { buzz: 0, plays: 0, seeks: 0, players: 0, downloads: 0, removes: 0, modes: [], alerts: [], notifications: [] };
+  const asset = {
+    uri: 'http://metro/assets/chime.wav', localUri: null,
+    downloadAsync: async () => { calls.downloads++; asset.localUri = 'file:///cache/chime.wav'; },
+  };
   const appState = { currentState: 'active' };
   let connectionListener, eventListener;
   const device = {
@@ -27,9 +31,10 @@ function fixture({ notifGranted = true } = {}) {
   };
   const player = {
     isLoaded: true,
+    get currentStatus() { return { isLoaded: this.isLoaded, error: null }; },
     seekTo: async (position) => { assert.equal(position, 0); calls.seeks++; },
-    play: () => { calls.plays++; },
-    pause() {}, remove() {},
+    play: () => { assert.equal(player.muted, false); assert.equal(player.volume, 1); calls.plays++; },
+    pause() {}, remove() { calls.removes++; },
   };
   const cache = new Map();
   function load(file) {
@@ -56,12 +61,20 @@ function fixture({ notifGranted = true } = {}) {
           NotificationFeedbackType: {}, ImpactFeedbackStyle: {},
         };
         if (name === 'expo-audio') return {
-          createAudioPlayer: () => { calls.players++; return player; },
+          createAudioPlayer: (source) => {
+            assert.equal(source.uri, asset.localUri);
+            assert.ok(source.uri.startsWith('file://'));
+            calls.players++;
+            return player;
+          },
           setAudioModeAsync: async (mode) => {
             assert.equal(mode.playsInSilentMode, true);
             assert.equal(mode.shouldPlayInBackground, false);
+            assert.equal(mode.allowsRecording, false);
+            assert.equal(mode.shouldRouteThroughEarpiece, false);
           },
         };
+        if (name === 'expo-asset') return { Asset: { fromModule: () => asset } };
         if (name === 'expo-notifications') return {
           setNotificationHandler: () => {},
           getPermissionsAsync: async () => ({ granted: notifGranted, canAskAgain: true }),
@@ -81,7 +94,7 @@ function fixture({ notifGranted = true } = {}) {
   const { AppController } = load(path.resolve(__dirname, '../src/state/appController.ts'));
   const c = new AppController();
   return {
-    c, calls, stored, player, device, appState,
+    c, calls, stored, player, device, appState, asset,
     connect: async () => {
       await c.useBleDevice({});
       c.profiles = [{ id: 'test', name: 'Test behavior' }];
@@ -155,7 +168,7 @@ test('sound reuses one player, restarts each chime, and stays muted while silent
     await f.c.alerts.trigger();
     assert.equal(f.calls.players, 1);
     assert.equal(f.calls.plays, 2);
-    assert.equal(f.calls.seeks, 2);
+    assert.equal(f.calls.seeks, 1, 'only replay needs a seek');
     await f.c.setSilentTracking(true);
     await f.c.alerts.trigger();
     assert.equal(f.calls.plays, 2);
@@ -163,6 +176,61 @@ test('sound reuses one player, restarts each chime, and stays muted while silent
     await f.c.alerts.testSound();
     assert.equal(f.calls.plays, 3, 'explicit test can play while silent tracking is on');
     assert.equal(f.c.silentTracking, true);
+  } finally { f.c.alerts.dispose(); }
+});
+
+test('test sound waits for a local asset and plays without an initial seek', async () => {
+  const f = fixture();
+  let finishDownload;
+  f.asset.downloadAsync = () => new Promise((resolve) => {
+    finishDownload = () => { f.asset.localUri = 'file:///cache/chime.wav'; resolve(); };
+  });
+  try {
+    const pending = f.c.alerts.testSound();
+    await new Promise(setImmediate);
+    assert.equal(f.calls.players, 0);
+    assert.equal(f.calls.plays, 0);
+    finishDownload();
+    await pending;
+    assert.equal(f.calls.plays, 1);
+    assert.equal(f.calls.seeks, 0);
+  } finally { f.c.alerts.dispose(); }
+});
+
+test('completed Android sounds can replay when the isLoaded getter is false', async () => {
+  const f = fixture();
+  try {
+    await f.c.alerts.testSound();
+    f.player.isLoaded = false;
+    Object.defineProperty(f.player, 'currentStatus', { value: { isLoaded: true, error: null } });
+    await f.c.alerts.testSound();
+    assert.equal(f.calls.plays, 2);
+    assert.equal(f.calls.seeks, 1);
+    assert.equal(f.calls.downloads, 1);
+  } finally { f.c.alerts.dispose(); }
+});
+
+test('native loading errors reach the test button and the next test rebuilds the player', async () => {
+  const f = fixture();
+  let fail;
+  let removedListener = false;
+  f.player.isLoaded = false;
+  f.player.addListener = (_event, callback) => {
+    fail = () => callback({ isLoaded: false, error: 'Audio file could not be decoded' });
+    return { remove() { removedListener = true; } };
+  };
+  try {
+    const pending = f.c.alerts.testSound();
+    const rejected = assert.rejects(pending, /could not be decoded/);
+    await new Promise(setImmediate);
+    fail();
+    await rejected;
+    assert.equal(removedListener, true);
+    assert.equal(f.calls.removes, 1);
+    f.player.isLoaded = true;
+    await f.c.alerts.testSound();
+    assert.equal(f.calls.players, 2);
+    assert.equal(f.calls.plays, 1);
   } finally { f.c.alerts.dispose(); }
 });
 

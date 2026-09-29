@@ -3,7 +3,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppCard, PrimaryButton, ScreenScrollView, StatusPill } from '../components/ui';
-import { appController } from '../state/appController';
+import { HabitCoachCard } from '../components/HabitCoachCard';
 import { useAppController } from '../state/useAppController';
 import { AppColors } from '../theme';
 import type { Nav } from '../navigation';
@@ -120,6 +120,8 @@ export function DashboardScreen() {
           ))}
         </View>
       </AppCard>
+
+      <HabitCoachCard profileId={active?.id} behaviorName={active?.name} />
 
       {/* Live monitor shortcut */}
       <View style={{ marginTop: 16 }}>

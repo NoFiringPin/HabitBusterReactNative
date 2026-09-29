@@ -125,6 +125,26 @@ to preview it. Adding another sound means bundling a short audio file under
 its own ringtone/system sounds to third-party apps, so this simple bundled
 list is the practical alternative.
 
+## AI Habit Coach
+
+The dashboard includes an inline **AI Habit Coach**. Choose **Studying / working**,
+**Feeling restless**, or **Feeling stressed**, then tap **Suggest a small step**.
+Try the action and rate it **Yes, helpful** or **Not this time**; **Try another
+idea** cycles through alternatives. It works before connecting or calibrating a
+watch, and adapts separately to each calibrated behavior and selected moment.
+
+This is a small on-device contextual bandit, not a generative chat service. It
+ranks four curated actions using a Bayesian helpfulness estimate and an
+exploration bonus. Initial suggestions favor the selected moment; later choices
+use your ratings. Feedback is stored locally with AsyncStorage. No account,
+network request, API key, or new native dependency is required. It does not
+infer triggers or progress from wearable counts. **Reset coach learning** clears
+only the coach's ratings, leaving calibration and tracking history intact.
+
+Reload your existing development build through Metro to test this JavaScript
+change. Quick check: choose a moment, request an idea, rate it, try an alternative,
+and restart the app to confirm learning remains saved.
+
 ## Passive mode (background alerts)
 
 Passive mode is separate from silent tracking: turned on, it sends a phone

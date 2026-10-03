@@ -254,3 +254,13 @@ move the project to a path with no spaces or parentheses, e.g.
 | `HapticFeedback` / `SystemSound` | `expo-haptics` + `expo-audio` (bundled sound library, see above) |
 | `ChangeNotifier` + `ListenableBuilder` | singleton store + `useSyncExternalStore` |
 | Navigator / MaterialPageRoute | `@react-navigation/native-stack` |
+
+## Public repository and local configuration
+
+Local `.env` files, environment variants, Firebase native settings, signing
+credentials, and temporary/cache files are ignored by Git. Share blank templates
+such as `.env.example`, not real settings. Client settings in `EXPO_PUBLIC_`
+variables are visible in the installed app; keep server secrets on the backend.
+Ignore rules do not remove files that were already committed.
+
+The Bluetooth tracking workflow needs a compatible FaceDefense device and a development build, but no cloud API key. Firmware is in `firmware/`. No license has been selected for this repository; public visibility alone does not grant reuse permission for original project code.

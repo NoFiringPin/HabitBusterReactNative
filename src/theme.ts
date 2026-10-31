@@ -3,20 +3,20 @@
  * and the dashboard's inline colors, so the RN port keeps the FaceDefense look.
  */
 export const AppColors = {
-  bg: '#f4fff9',
-  green: '#10c984',
-  greenDark: '#00775b',
-  greenBorder: '#a6f2cf',
-  blue: '#49aaf5',
-  blueBorder: '#91ceff',
+  bg: '#f3f7f5',
+  green: '#087f63',
+  greenDark: '#075b4a',
+  greenBorder: '#dcebe3',
+  blue: '#347eae',
+  blueBorder: '#d8e7f0',
   red: '#ef4b75',
   amber: '#ffd93b',
-  ink: '#252c3c',
-  sub: '#788092',
+  ink: '#183c34',
+  sub: '#63766f',
   // Extra tints used by the dashboard cards.
-  greenTintBg: '#eafff4',
-  blueTintBg: '#f2f9ff',
+  greenTintBg: '#e9f4ee',
+  blueTintBg: '#eef4f8',
   cardWhite: '#ffffff',
-  pillGreen: '#c9f8d9',
-  pillBlue: '#ace0ff',
+  pillGreen: '#dcefe3',
+  pillBlue: '#dceaf4',
 } as const;

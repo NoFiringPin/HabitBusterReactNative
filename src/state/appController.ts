@@ -17,6 +17,8 @@ import {
 } from '../services/bleTwitchDevice';
 import { ensureNotificationPermission, fireDetectionNotification } from '../services/notificationService';
 import { DEFAULT_SOUND_ID } from '../services/soundLibrary';
+import { HabitRewards } from '../services/habitRewards';
+import { buildShieldReport, dayKey, type DayLog, type ReportPeriod } from '../services/shieldReport';
 import {
   DeviceConnection,
   DeviceMode,
@@ -28,20 +30,8 @@ import {
   type Unsubscribe,
 } from '../services/twitchDevice';
 
-interface DayLog {
-  total: number;
-  hours: number[]; // length 24
-}
-
 function emptyDayLog(): DayLog {
   return { total: 0, hours: new Array(24).fill(0) };
-}
-
-function dayKey(d: Date): string {
-  const y = d.getFullYear().toString().padStart(4, '0');
-  const m = (d.getMonth() + 1).toString().padStart(2, '0');
-  const day = d.getDate().toString().padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 /**
@@ -62,6 +52,9 @@ export class AppController {
   }
 
   readonly alerts = new AlertService();
+  readonly habitRewards = new HabitRewards();
+  private rewardSave = Promise.resolve();
+  private rewardSavedAt = 0;
 
   private device: TwitchDevice | null = null;
   private connSub: Unsubscribe | null = null;
@@ -71,6 +64,7 @@ export class AppController {
   // ---- Connection / live state --------------------------------------------
   connection = DeviceConnection.disconnected;
   lastSample: DeviceSample | null = null;
+  lastSampleAt: number | null = null;
   monitoring = false;
   /** True while auto-discovering the watch by name. */
   searching = false;
@@ -133,6 +127,7 @@ export class AppController {
   async init(): Promise<void> {
     await this.loadProfiles();
     await this.loadLog();
+    this.habitRewards.restore(await AsyncStorage.getItem('habitRewards'));
     this.alerts.enabled = (await getBool('alertEnabled')) ?? true;
     this.alerts.soundEnabled = (await getBool('soundEnabled')) ?? false;
     this.alerts.soundId = (await AsyncStorage.getItem('alertSoundId')) ?? DEFAULT_SOUND_ID;
@@ -249,6 +244,9 @@ export class AppController {
     this.connSub = next.onConnection((c) => {
       this.connection = c;
       if (c === DeviceConnection.disconnected) {
+        this.lastSample = null;
+        this.lastSampleAt = null;
+        this.pauseHabitRewards();
         this.monitoring = false;
         this.alerts.stop();
       }
@@ -256,6 +254,8 @@ export class AppController {
     });
     this.sampleSub = next.onSample((s) => {
       this.lastSample = s;
+      this.lastSampleAt = Date.now();
+      if (this.monitoring) this.updateHabitProgress();
       this.notify();
     });
     this.eventSub = next.onEvent((e) => this.onEvent(e));
@@ -263,6 +263,7 @@ export class AppController {
   }
 
   private async detach(): Promise<void> {
+    this.pauseHabitRewards();
     this.alerts.stop();
     this.connSub?.();
     this.sampleSub?.();
@@ -276,11 +277,13 @@ export class AppController {
     }
     this.connection = DeviceConnection.disconnected;
     this.lastSample = null;
+    this.lastSampleAt = null;
     this.monitoring = false;
     this.connectionStatus = 'Ready to connect';
   }
 
   async connect(options?: DeviceConnectOptions): Promise<void> {
+    this.pauseHabitRewards();
     try {
       await this.device?.connect(options);
       // Restore silent/alert mode on every connection, including after a reboot.
@@ -297,6 +300,8 @@ export class AppController {
   }
 
   async disconnect(): Promise<void> {
+    this.pauseHabitRewards();
+    this.monitoring = false;
     this.alerts.stop();
     this.connectionStatus = 'Disconnecting…';
     this.notify();
@@ -315,6 +320,7 @@ export class AppController {
   // =========================================================================
 
   async enterCalibration(): Promise<void> {
+    this.pauseHabitRewards();
     this.monitoring = false;
     this.alerts.stop();
     this.notify();
@@ -330,13 +336,19 @@ export class AppController {
     await this.device.pushProfile(active);
     await this.device.setAlertEnabled(this.alerts.enabled);
     await this.device?.setMode(DeviceMode.run);
+    // Wait for a RUN sample rather than presenting an old idle pose as live.
+    this.lastSample = null;
+    this.lastSampleAt = null;
     this.monitoring = true;
+    this.habitRewards.start(active.id);
+    this.recordTrackingDay();
     this.notify();
   }
 
   async stopMonitoring(): Promise<void> {
     this.alerts.stop();
     await this.device?.setMode(DeviceMode.idle);
+    this.pauseHabitRewards();
     this.monitoring = false;
     this.notify();
   }
@@ -365,6 +377,7 @@ export class AppController {
   // =========================================================================
 
   async addProfile(p: BehaviorProfile, makeActive = true): Promise<void> {
+    if (makeActive && this.monitoring) await this.stopMonitoring();
     this.profiles.push(p);
     if (makeActive) this.activeProfileId = p.id;
     await this.saveProfiles();
@@ -373,6 +386,7 @@ export class AppController {
   }
 
   async deleteProfile(id: string): Promise<void> {
+    if (id === this.activeProfileId && this.monitoring) await this.stopMonitoring();
     this.profiles = this.profiles.filter((p) => p.id !== id);
     if (this.activeProfileId === id) {
       this.activeProfileId = this.profiles.length === 0 ? null : this.profiles[0].id;
@@ -382,6 +396,7 @@ export class AppController {
   }
 
   async setActiveProfile(id: string): Promise<void> {
+    if (id !== this.activeProfileId && this.monitoring) await this.stopMonitoring();
     this.activeProfileId = id;
     await this.saveProfiles();
     const active = this.activeProfile;
@@ -435,6 +450,8 @@ export class AppController {
   private onEvent(e: TwitchEvent): void {
     // Paused sessions and calibration previews do not count as daily activity.
     if (!this.monitoring) return;
+    this.habitRewards.detected();
+    this.saveHabitRewards();
     this.recentEvents = [e, ...this.recentEvents].slice(0, 50);
 
     const key = dayKey(new Date(e.time));
@@ -454,6 +471,10 @@ export class AppController {
   }
 
   /** Touch totals for the current week, Monday..Sunday. */
+  shieldReport(period: ReportPeriod, offset = 0, now = new Date()) {
+    return buildShieldReport(this.log, period, offset, now);
+  }
+
   weekTotals(): number[] {
     const now = new Date();
     const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -491,6 +512,39 @@ export class AppController {
   // =========================================================================
   //  Persistence
   // =========================================================================
+
+  /** Called by sensor samples and the dashboard clock; storage is throttled. */
+  updateHabitProgress(): void {
+    if (!this.monitoring) return;
+    const awarded = this.habitRewards.update();
+    if (awarded || Date.now() - this.rewardSavedAt >= 60_000) this.saveHabitRewards();
+    this.recordTrackingDay();
+  }
+
+  private recordTrackingDay(): void {
+    const key = dayKey(new Date());
+    if (!this.log.has(key)) {
+      this.log.set(key, emptyDayLog());
+      void this.saveLog();
+    }
+  }
+
+  private pauseHabitRewards(): void {
+    if (!this.monitoring) return;
+    this.habitRewards.stop();
+    this.saveHabitRewards();
+  }
+
+  private saveHabitRewards(): void {
+    this.rewardSavedAt = Date.now();
+    const raw = this.habitRewards.serialize();
+    this.rewardSave = this.rewardSave
+      .then(() => AsyncStorage.setItem('habitRewards', raw))
+      .catch((error) => {
+        this.rewardSavedAt = 0;
+        console.warn('Could not save habit badges:', error);
+      });
+  }
 
   private async loadProfiles(): Promise<void> {
     const raw = await AsyncStorage.getItem('profiles');

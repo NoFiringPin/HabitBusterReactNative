@@ -56,6 +56,22 @@ Subsequent JS-only changes just need the bundler:
 npm start                    # expo start --dev-client
 ```
 
+## Live movement and device setup
+
+In **Device & Behaviors**, follow Connect → Choose → Track. Select a saved
+behavior or calibrate a new one, then start tracking. **View live movement**
+opens the live monitor. Expand **Make it feel right** to customize silent
+tracking, sound, vibration tests, and background notifications. Switching
+behaviors pauses the current session.
+
+The live monitor uses the watch's existing pitch and roll to animate a wearable
+illustration, plus a 10-second motion-intensity chart with the calibrated
+threshold. **Set this pose as center** changes only the visualization; it does
+not change calibration or detection. This shows tilt, not hand position or a
+3D movement trajectory. Delayed readings are labeled, and disconnected or paused
+sessions are never shown as live. Confirmed detections appear separately in the
+event feed.
+
 ## Reliable watch connection
 
 The watch starts advertising on power-up without Mu or a serial console. Its

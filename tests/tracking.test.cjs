@@ -6,6 +6,8 @@ const test = require('node:test');
 const ts = require('typescript');
 
 function fixture({ notifGranted = true } = {}) {
+  let now = Date.now();
+  class TestClock extends Date { static now() { return now; } }
   const stored = new Map();
   const calls = { buzz: 0, plays: 0, seeks: 0, players: 0, downloads: 0, removes: 0, modes: [], alerts: [], notifications: [] };
   const asset = {
@@ -13,11 +15,11 @@ function fixture({ notifGranted = true } = {}) {
     downloadAsync: async () => { calls.downloads++; asset.localUri = 'file:///cache/chime.wav'; },
   };
   const appState = { currentState: 'active' };
-  let connectionListener, eventListener;
+  let connectionListener, eventListener, sampleListener;
   const device = {
     name: 'FaceDefense', connection: 'disconnected',
     onConnection: (fn) => { connectionListener = fn; return () => {}; },
-    onSample: () => () => {},
+    onSample: (fn) => { sampleListener = fn; return () => {}; },
     onEvent: (fn) => { eventListener = fn; return () => {}; },
     connect: async () => { device.connection = 'connected'; connectionListener('connected'); },
     disconnect: async () => { device.connection = 'disconnected'; connectionListener('disconnected'); },
@@ -45,7 +47,7 @@ function fixture({ notifGranted = true } = {}) {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText;
     vm.runInNewContext(source, {
-      module, exports: module.exports, console, Date,
+      module, exports: module.exports, console, Date: TestClock,
       setTimeout, clearTimeout, setInterval, clearInterval,
       require: (name) => {
         if (name === '@react-native-async-storage/async-storage') return {
@@ -95,6 +97,8 @@ function fixture({ notifGranted = true } = {}) {
   const c = new AppController();
   return {
     c, calls, stored, player, device, appState, asset,
+    advance: (ms) => { now += ms; },
+    sample: () => sampleListener({ pitch: 0, motion: 0, roll: 0, flagged: false }),
     connect: async () => {
       await c.useBleDevice({});
       c.profiles = [{ id: 'test', name: 'Test behavior' }];
@@ -104,6 +108,82 @@ function fixture({ notifGranted = true } = {}) {
     event: () => eventListener({ count: 1, pitch: 30, motion: 2, time: Date.now() }),
   };
 }
+
+test('live movement waits for new tracking samples and clears readings on disconnect', async () => {
+  const f = fixture();
+  try {
+    await f.connect();
+    f.sample();
+    assert.ok(f.c.lastSample);
+    assert.equal(typeof f.c.lastSampleAt, 'number');
+    await f.c.startMonitoring();
+    assert.equal(f.c.lastSample, null, 'idle readings must not be presented as tracking data');
+    assert.equal(f.c.lastSampleAt, null);
+    f.sample();
+    const receivedAt = f.c.lastSampleAt;
+    f.advance(150);
+    f.sample();
+    assert.equal(f.c.lastSampleAt, receivedAt + 150);
+    await f.c.disconnect();
+    assert.equal(f.c.lastSample, null);
+    assert.equal(f.c.lastSampleAt, null);
+  } finally { f.c.alerts.dispose(); }
+});
+
+test('badges use actual tracking time, persist, and reset on detections', async () => {
+  const f = fixture();
+  try {
+    await f.connect();
+    await f.c.setSilentTracking(true);
+    await f.c.startMonitoring();
+    f.advance(20 * 60_000);
+    f.sample();
+    await new Promise(setImmediate);
+    assert.ok(f.c.habitRewards.progress('test').earned['20m']);
+    assert.ok(JSON.parse(f.stored.get('habitRewards'))[0][1].earned['20m']);
+    await f.c.stopMonitoring();
+    f.advance(24 * 3_600_000);
+    f.c.updateHabitProgress();
+    assert.equal(f.c.habitRewards.progress('test').cleanMs, 20 * 60_000);
+    await f.c.startMonitoring();
+    f.advance(40 * 60_000);
+    f.sample();
+    assert.ok(f.c.habitRewards.progress('test').earned['1h']);
+    f.event();
+    assert.equal(f.c.habitRewards.progress('test').cleanMs, 0);
+    await f.c.disconnect();
+    f.advance(3_600_000);
+    f.c.updateHabitProgress();
+    assert.equal(f.c.habitRewards.progress('test').cleanMs, 0);
+    assert.ok(f.c.habitRewards.progress('test').earned['1h']);
+    await new Promise(setImmediate);
+    await f.c.init();
+    assert.ok(f.c.habitRewards.progress('test').earned['1h']);
+  } finally { f.c.alerts.dispose(); }
+});
+
+test('zero-touch tracking days appear in reports and profiles keep separate reward progress', async () => {
+  const f = fixture();
+  try {
+    await f.connect();
+    await f.c.startMonitoring();
+    assert.equal(f.c.shieldReport('week').recordedDays, 1);
+    assert.equal(f.c.shieldReport('month').total, 0);
+    f.advance(20 * 60_000);
+    f.sample();
+    f.c.profiles.push({ id: 'other', name: 'Other behavior' });
+    await f.c.setActiveProfile('other');
+    assert.equal(f.c.monitoring, false);
+    await f.c.startMonitoring();
+    f.advance(10 * 60_000);
+    await f.c.enterCalibration();
+    f.advance(3_600_000);
+    f.sample();
+    assert.equal(f.c.habitRewards.progress('other').cleanMs, 10 * 60_000);
+    assert.equal(f.c.habitRewards.progress('other').earned['20m'], undefined);
+    assert.ok(f.c.habitRewards.progress('test').earned['20m']);
+  } finally { f.c.alerts.dispose(); }
+});
 
 test('silent tracking counts and saves events without phone or watch alerts', async () => {
   const f = fixture();

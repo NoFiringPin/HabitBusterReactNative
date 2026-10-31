@@ -60,7 +60,7 @@ export function AppCard(props: {
     children,
     color = AppColors.cardWhite,
     borderColor = AppColors.greenBorder,
-    borderWidth = 1.5,
+    borderWidth = 1,
     style,
   } = props;
   return (
@@ -105,7 +105,11 @@ export function PrimaryButton(props: {
   const bg = props.disabled ? '#b0b7c3' : props.color ?? AppColors.green;
   return (
     <Pressable
-      onPress={props.disabled ? undefined : props.onPress}
+      accessibilityRole="button"
+      accessibilityLabel={props.label}
+      accessibilityState={{ disabled: props.disabled || props.loading || false }}
+      disabled={props.disabled || props.loading}
+      onPress={props.onPress}
       style={({ pressed }) => [
         styles.primaryBtn,
         { backgroundColor: bg, opacity: pressed ? 0.85 : 1 },
@@ -133,6 +137,9 @@ export function OutlineButton(props: {
   const fg = props.color ?? AppColors.blue;
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: props.disabled || false }}
+      disabled={props.disabled}
       onPress={props.disabled ? undefined : props.onPress}
       style={({ pressed }) => [
         styles.outlineBtn,
@@ -147,8 +154,13 @@ export function OutlineButton(props: {
 const styles = StyleSheet.create({
   card: {
     width: '100%',
-    padding: 14,
-    borderRadius: 18,
+    padding: 20,
+    borderRadius: 24,
+    shadowColor: '#193f30',
+    shadowOpacity: 0.035,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 1,
   },
   pill: {
     flexDirection: 'row',
@@ -189,7 +201,7 @@ const styles = StyleSheet.create({
   screenBody: {
     flexGrow: 1,
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   screenColumn: {
     width: '100%',

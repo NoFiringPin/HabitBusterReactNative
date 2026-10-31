@@ -72,6 +72,14 @@
           "icon": "./assets/icon.png",
           "color": "#f4fff9"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
       ]
     ],
     "extra": {
